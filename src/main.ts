@@ -144,13 +144,14 @@ async function processFiles() {
           const page = await pdf.getPage(pageNumber);
           const textContent = await page.getTextContent();
           pageText = textContent.items.map(item => "str" in item ? item.str : "").join(" ").replace(/\s+/g, " ").trim();
-          const viewport = page.getViewport({ scale: Math.min(1.4, 1200 / page.getViewport({scale:1}).width) });
+          const baseViewport = page.getViewport({ scale: 1 });
+          const viewport = page.getViewport({ scale: Math.min(1.1, 1000 / baseViewport.width) });
           const canvas = document.createElement("canvas");
           canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
           const context = canvas.getContext("2d");
           if (!context) throw new Error("Could not render the PDF page.");
           await page.render({ canvas, canvasContext: context, viewport }).promise;
-          const imageData = canvas.toDataURL("image/jpeg", 0.68).split(",")[1];
+          const imageData = canvas.toDataURL("image/jpeg", 0.55).split(",")[1];
           const result = await jsonPost("/api/extract", { fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData });
           const newQuestions: Question[] = (result.questions || []).map((q: any, i: number) => ({
             id: crypto.randomUUID(), fileName: file.name, pageNumber,
