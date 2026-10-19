@@ -5,10 +5,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#111827" />
     <meta name="description" content="Extract, review, audit and export questions from PDF study material with Gemini AI." />
+    <meta name="color-scheme" content="dark" />
     <title>PaperPilot — PDF Question Maker</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #0b1020; color: #edf2ff; }
+      body { margin: 0; min-height: 100vh; background: radial-gradient(ellipse at 50% -18%, #202d53 0, transparent 46%), #0b1020; }
+      .startup-fallback { box-sizing: border-box; width: min(720px, calc(100% - 32px)); margin: 10vh auto; padding: clamp(24px, 5vw, 42px); border: 1px solid #35425e; border-radius: 22px; background: #121a2cf5; box-shadow: 0 28px 100px #0007; }
+      .startup-brand { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 22px; border-radius: 13px; background: linear-gradient(135deg, #8a9aff, #6fe4c3); color: #10172a; font-weight: 900; font-size: 22px; }
+      .startup-kicker { color: #72e4c1; font-weight: 800; font-size: 11px; letter-spacing: .15em; }
+      .startup-fallback h1 { font-size: clamp(28px, 5vw, 40px); line-height: 1.15; margin: 10px 0 12px; }
+      .startup-fallback p, .startup-fallback li { color: #b7c2d8; line-height: 1.7; font-size: 14px; }
+      .startup-fallback a { display: inline-block; margin-top: 12px; padding: 11px 16px; border-radius: 10px; background: #72e4c1; color: #0b1020; font-weight: 800; text-decoration: none; }
+      .startup-fallback code { color: #d9e1ff; background: #080e1b; border-radius: 5px; padding: 2px 5px; }
+      .startup-fallback .startup-note { border-left: 3px solid #72e4c1; padding-left: 14px; }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app" aria-live="polite">
+      <section class="startup-fallback" role="status">
+        <div class="startup-brand" aria-hidden="true">P</div>
+        <div class="startup-kicker">PAPERPILOT STARTUP CHECK</div>
+        <h1>The app bundle has not loaded.</h1>
+        <p>This page is built with Vite and TypeScript. It must serve the production build from <code>dist/</code>; opening the source <code>index.html</code> directly or deploying the repository root as plain static files will not run the app.</p>
+        <p class="startup-note"><strong>Full app hosting:</strong> deploy this repository to Vercel. The <code>/api/*</code> Gemini and sign-in endpoints are serverless functions, and GitHub Pages cannot run them.</p>
+        <ol>
+          <li>Import <code>6499piyushraj-art/Pdf-maker</code> into Vercel using the repository root.</li>
+          <li>Use <code>npm run build</code> and output directory <code>dist</code> (already configured).</li>
+          <li>Add <code>GEMINI_API_KEY</code>, <code>APP_PASSWORD</code>, and <code>SESSION_SECRET</code>, then redeploy.</li>
+        </ol>
+        <a href="https://vercel.com/new" rel="noreferrer">Deploy with Vercel</a>
+      </section>
+    </div>
+    <noscript><p style="padding:16px;color:#edf2ff">PaperPilot needs JavaScript enabled to run.</p></noscript>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
