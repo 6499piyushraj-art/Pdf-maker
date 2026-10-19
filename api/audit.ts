@@ -60,6 +60,11 @@ ${JSON.stringify(questions)}`;
     return json(res, 200, { issues, summary: str(parsed?.summary, 1000) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Gemini audit failed.";
-    return json(res, 502, { error: `Audit failed for page ${pageNumber}: ${message.slice(0, 300)}` });
+    // Audit failure must never discard questions that extraction already recovered.
+    const issues = questions.map((_, questionIndex) => ({
+      questionIndex,
+      issue: "Automated second-pass audit failed; manually compare this question with the original PDF."
+    }));
+    return json(res, 200, { issues, warning: `Audit failed for page ${pageNumber}: ${message.slice(0, 180)}` });
   }
 }
