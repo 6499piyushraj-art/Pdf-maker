@@ -125,8 +125,8 @@ app.addEventListener("click", async (event) => {
   if (target.id === "process") { await processFiles(); return; }
   if (target.id === "export") { await exportDocx(); return; }
   if (target.classList.contains("retry")) {
-    state.message = "To retry a page, re-select its PDF and run extraction again. Previously extracted questions are preserved.";
-    render();
+    await retryPage(target.dataset.file || "", Number(target.dataset.page));
+    return;
   }
 });
 
@@ -159,10 +159,15 @@ async function processFiles() {
             confidence: Number.isFinite(q.confidence) ? Math.max(0, Math.min(1, q.confidence)) : 0.5,
             reviewRequired: Boolean(q.reviewRequired), reviewNotes: Array.isArray(q.reviewNotes) ? q.reviewNotes.map(String) : []
           }));
-          const audit = await jsonPost("/api/audit", { fileName: file.name, pageNumber, pageText, questions: newQuestions.map(q => ({ questionText: q.questionText, options: q.options, answer: q.answer })) });
-          for (const issue of audit.issues || []) {
-            const q = newQuestions[Number(issue.questionIndex)];
-            if (q) { q.reviewRequired = true; q.reviewNotes.push(String(issue.issue || "Second-pass audit flagged this question.")); }
+          let audit: any = { issues: [] };
+          try {
+            audit = await jsonPost("/api/audit", { fileName: file.name, pageNumber, pageText, questions: newQuestions.map(q => ({ questionText: q.questionText, options: q.options, answer: q.answer })) });
+            for (const issue of audit.issues || []) {
+              const q = newQuestions[Number(issue.questionIndex)];
+              if (q) { q.reviewRequired = true; q.reviewNotes.push(String(issue.issue || "Second-pass audit flagged this question.")); }
+            }
+          } catch {
+            for (const q of newQuestions) { q.reviewRequired = true; q.reviewNotes.push("Second-pass audit failed; compare this page with the original PDF."); }
           }
           state.questions.push(...newQuestions);
           state.pages.push({ fileName: file.name, pageNumber, text: pageText, status: "done", questions: newQuestions.length });
@@ -177,6 +182,61 @@ async function processFiles() {
   } catch (error) {
     state.message = error instanceof Error ? error.message : "PDF processing failed.";
   } finally { state.busy = false; render(); }
+}
+
+async function retryPage(fileName: string, pageNumber: number) {
+  const file = state.files.find(item => item.name === fileName);
+  if (!file || state.busy || !Number.isInteger(pageNumber) || pageNumber < 1) {
+    state.message = "Keep the original PDF selected to retry a failed page.";
+    render();
+    return;
+  }
+  state.busy = true;
+  state.message = `Retrying ${file.name} · page ${pageNumber}…`;
+  render();
+  try {
+    const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const page = await pdf.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items.map(item => "str" in item ? item.str : "").join(" ").replace(/\s+/g, " ").trim();
+    const baseViewport = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: Math.min(1.1, 1000 / baseViewport.width) });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not render the PDF page.");
+    await page.render({ canvas, canvasContext: context, viewport }).promise;
+    const imageData = canvas.toDataURL("image/jpeg", 0.55).split(",")[1];
+    const result = await jsonPost("/api/extract", { fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData });
+    const questions: Question[] = (result.questions || []).map((q: any) => ({
+      id: crypto.randomUUID(), fileName: file.name, pageNumber,
+      questionText: String(q.questionText || ""), options: Array.isArray(q.options) ? q.options.map(String) : [],
+      answer: String(q.answer || ""), explanation: String(q.explanation || ""), diagramDescription: String(q.diagramDescription || ""),
+      confidence: Number.isFinite(q.confidence) ? Math.max(0, Math.min(1, q.confidence)) : 0.5,
+      reviewRequired: Boolean(q.reviewRequired), reviewNotes: Array.isArray(q.reviewNotes) ? q.reviewNotes.map(String) : []
+    }));
+    try {
+      const audit = await jsonPost("/api/audit", { fileName: file.name, pageNumber, pageText, questions: questions.map(q => ({ questionText: q.questionText, options: q.options, answer: q.answer })) });
+      for (const issue of audit.issues || []) {
+        const q = questions[Number(issue.questionIndex)];
+        if (q) { q.reviewRequired = true; q.reviewNotes.push(String(issue.issue || "Second-pass audit flagged this question.")); }
+      }
+    } catch {
+      for (const q of questions) { q.reviewRequired = true; q.reviewNotes.push("Second-pass audit failed; compare this page with the original PDF."); }
+    }
+    state.questions = state.questions.filter(q => !(q.fileName === file.name && q.pageNumber === pageNumber));
+    state.questions.push(...questions);
+    const pageIndex = state.pages.findIndex(p => p.fileName === file.name && p.pageNumber === pageNumber);
+    const record: PageRecord = { fileName: file.name, pageNumber, text: pageText, status: "done", questions: questions.length };
+    if (pageIndex >= 0) state.pages[pageIndex] = record; else state.pages.push(record);
+    state.message = `Retry complete: ${questions.length} question(s) recovered from page ${pageNumber}.`;
+    state.activeTab = "questions";
+  } catch (error) {
+    state.message = error instanceof Error ? error.message : "Page retry failed.";
+  } finally {
+    state.busy = false;
+    render();
+  }
 }
 
 async function exportDocx() {
