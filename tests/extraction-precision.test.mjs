@@ -64,3 +64,12 @@ test("focused-only fallback labels crops honestly and accepts crop-only image pa
   assert.match(extract, /focusedOnly \? "FOCUSED CROP 1/);
   assert.match(extract, /!imageData && imageDataSegments.length === 0/);
 });
+
+test("zero-result recovery independently retries each focused crop and merges candidates", () => {
+  assert.match(main, /Pass 2: read overlapping upper\/lower crops/);
+  assert.match(main, /Passes 3–4: ask about each crop separately/);
+  assert.match(main, /for \(const \[index, cropData\] of input\.imageDataSegments\.entries\(\)\)/);
+  assert.match(main, /focusedFallbackPasses/);
+  assert.match(extract, /Question \[JEE Mains-2023\]/);
+  assert.match(extract, /ignore handwritten working, ticks, circles and answers/);
+});
