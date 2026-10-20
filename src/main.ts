@@ -51,9 +51,11 @@ async function extractPageWithFocusedFallback(input: {
   imageData: string;
   imageDataSegments: string[];
 }): Promise<any> {
-  const result = await jsonPost("/api/extract", { ...input });
-  if (!Array.isArray(result?.questions) || result.questions.length > 0 || input.imageDataSegments.length < 2) return result;
-  // If the full-slide pass missed everything, make one focused-only call rather than silently accepting zero.
+  const initial = await jsonPost("/api/extract", { ...input });
+  if (!Array.isArray(initial?.questions) || initial.questions.length > 0 || input.imageDataSegments.length < 2) return initial;
+
+  // Pass 2: read overlapping upper/lower crops without the full-page view.
+  const candidateSets: any[][] = [];
   try {
     const focused = await jsonPost("/api/extract", {
       fileName: input.fileName,
@@ -64,13 +66,50 @@ async function extractPageWithFocusedFallback(input: {
       imageDataSegments: [input.imageDataSegments[1]],
       focusedOnly: true
     });
-    if (Array.isArray(focused?.questions) && focused.questions.length > 0) {
-      return { ...focused, focusedFallbackUsed: true };
-    }
-    return { ...result, focusedFallbackAttempted: true };
+    if (Array.isArray(focused?.questions) && focused.questions.length) candidateSets.push(focused.questions);
   } catch {
-    return { ...result, focusedFallbackAttempted: true };
+    // Continue to the independent crop attempts below.
   }
+
+  // Passes 3–4: ask about each crop separately. Some vision calls miss small text
+  // when the complete slide and handwritten work are shown together.
+  if (!candidateSets.some(set => set.length)) {
+    for (const [index, cropData] of input.imageDataSegments.entries()) {
+      try {
+        const cropResult = await jsonPost("/api/extract", {
+          fileName: input.fileName,
+          pageNumber: input.pageNumber,
+          pageCount: input.pageCount,
+          pageText: input.pageText,
+          imageData: cropData,
+          imageDataSegments: [],
+          focusedOnly: true
+        });
+        if (Array.isArray(cropResult?.questions) && cropResult.questions.length) candidateSets.push(cropResult.questions);
+      } catch {
+        // A failed crop doesn't prevent the other crop from being inspected.
+      }
+    }
+  }
+
+  if (!candidateSets.length) return { ...initial, focusedFallbackAttempted: true };
+
+  const seen = new Set<string>();
+  const questions: any[] = [];
+  for (const set of candidateSets) {
+    for (const question of set) {
+      const key = String(question?.questionText || "").toLowerCase().replace(/\s+/g, " ").trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      questions.push(question);
+    }
+  }
+  return {
+    ...initial,
+    questions,
+    focusedFallbackUsed: true,
+    focusedFallbackPasses: candidateSets.length
+  };
 }
 
 async function checkAuth() {
