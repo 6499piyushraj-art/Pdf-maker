@@ -5,6 +5,8 @@ import { readFile } from "node:fs/promises";
 const main = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
 const extract = await readFile(new URL("../api/extract.ts", import.meta.url), "utf8");
 const audit = await readFile(new URL("../api/audit.ts", import.meta.url), "utf8");
+const extract = await readFile(new URL("../api/extract.ts", import.meta.url), "utf8");
+const audit = await readFile(new URL("../api/audit.ts", import.meta.url), "utf8");
 
 test("PDF pages are sent to Gemini at a substantially higher image resolution and quality", () => {
   assert.equal((main.match(/Math\.min\(2, 1600 \/ baseViewport\.width\)/g) || []).length, 2);
@@ -38,4 +40,15 @@ test("second pass independently rescans the entire page even when first pass ret
 
 test("pages with zero detected questions explicitly ask the user to verify them", () => {
   assert.match(main, /No questions detected — manually verify this page/);
+});
+
+test("image-only PDF requests include a full-slide view and focused crop views in both passes", () => {
+  assert.match(main, /function makePageImagePayload/);
+  assert.match(main, /cropHeight = Math\.max\(1, Math\.ceil\(canvas\.height \* 0\.62\)\)/);
+  assert.equal((main.match(/imageDataSegments \}\s*\} = makePageImagePayload\(canvas\)/g) || []).length, 2);
+  assert.match(main, /imageDataSegments, questions:/);
+  assert.match(extract, /FOCUSED CROP/);
+  assert.match(audit, /FOCUSED CROP/);
+  assert.match(extract, /imageBytesTotal > 4400000/);
+  assert.match(audit, /imageBytesTotal > 4400000/);
 });
