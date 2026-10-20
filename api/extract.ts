@@ -41,9 +41,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!hasGeminiApiKey()) return json(res, 503, { error: "Configure GEMINI_API_KEY_1 through GEMINI_API_KEY_7 (or legacy GEMINI_API_KEY) on the server." });
 
   const prompt = [
-    "You are a high-coverage, question-only extractor. Inspect this single PDF page and extract EVERY visible exam/practice question in reading order, including sub-parts (a), (b), (i), (ii), assertion/reason, matching, fill-in-the-blanks, graph/table questions and every MCQ option.",
-    "Never return answers, worked solutions, hints, explanations, or reasoning, even if printed somewhere on the page. Ignore answer keys and solution paragraphs. Preserve original wording, language, symbols, equations, numbers, units and option order.",
-    "If a diagram, geometry figure, graph or table is required, describe the visible labels, shapes, axes, arrows, markings and relationships in diagramDescription. Do not guess unreadable labels. Use [unclear] and set reviewRequired=true for uncertain text or figures. For questions continued from another page, extract only the visible part and flag for review. Return an empty array if no question is visible.",
+    "You are a meticulous, high-recall exam-question extraction engine. Independently inspect the ENTIRE attached page image from top to bottom and left to right. Do not summarize the page or rely only on selectable PDF text.",
+    "Extract EVERY actually visible exam/practice question: all numbered items (1., Q1, 1)), subparts (a), (b), (i), (ii), assertion/reason, matching, fill-in-the-blanks, true/false, numerical questions, passage-based questions, and questions that depend on a table, graph, circuit or diagram. A question does NOT need a question mark. Inspect both columns, the margins and the bottom of the page; never stop after the first question.",
+    "Use selectable PDF text as a second source and reconcile it against the image; it can be incomplete, scrambled or missing entirely. Preserve visible wording, subpart labels, math symbols, superscripts/subscripts when readable, units, values, original language/script (including Hindi), and option order. Do not paraphrase, shorten, combine separate numbered questions, or skip a question because its wording is incomplete.",
+    "Return only question statements, their subparts, options and necessary diagram descriptions. NEVER include answers, worked solutions, hints, explanations or answer-key text even when printed nearby. Ignore solution paragraphs. If part of a question is visibly present but unreadable, retain all legible text, mark the unreadable span [unclear], and require review instead of dropping the question or guessing.",
+    "For any required diagram, geometry figure, graph or table, describe visible labels, shapes, axes, arrows and markings in diagramDescription without inventing details. For a continued question, capture the visible portion and flag it for review. Return an empty questions array ONLY when the page truly has no visible question; never create a question from headings, instructions or solution text.",
     "Return JSON only: {\"questions\":[{\"questionText\":\"...\",\"options\":[\"(A) ...\"],\"diagramDescription\":\"\",\"confidence\":0.0,\"reviewRequired\":false,\"reviewNotes\":[]}]}",
     "Source filename: " + fileName,
     "Page: " + pageNumber + " of " + pageCount,
@@ -69,7 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const reviewNotes = Array.isArray(q?.reviewNotes) ? q.reviewNotes.slice(0, 8).map(n => cleanString(n, 500)).filter(Boolean) : [];
       const reviewRequired = shouldFlagForReview({ explicitReview: q?.reviewRequired, confidence, questionText, options, diagramDescription });
       if (!questionText) reviewNotes.push("Question text is missing or unreadable.");
-      return { questionText: questionText || "[unclear question text]", options, diagramDescription, confidence, reviewRequired: reviewRequired || !questionText, reviewNotes };
+      return { questionText, options, diagramDescription, confidence, reviewRequired: reviewRequired || !questionText, reviewNotes };
     }).filter(q => q.questionText);
     return json(res, 200, { fileName, pageNumber, questions, warning: questions.length === 40 ? "Question count was capped at 40 for one page." : undefined });
   } catch (error) {
