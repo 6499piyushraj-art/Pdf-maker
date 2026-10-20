@@ -6,6 +6,7 @@ const index = await readFile(new URL("../index.html", import.meta.url), "utf8");
 const viteConfig = await readFile(new URL("../vite.config.ts", import.meta.url), "utf8");
 const vercel = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
 const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+const mainSource = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
 
 test("index has visible startup diagnostics instead of an empty app root", () => {
   assert.match(index, /id="app"[\s\S]*startup-fallback/);
@@ -28,4 +29,12 @@ test("docs distinguish static GitHub Pages from a full Vercel deployment", () =>
   assert.match(readme, /6499piyushraj-art\/Pdf-maker/);
   assert.match(readme, /vercel.com\/new/);
   assert.match(readme, /Open the Vercel deployment URL, not the GitHub Pages URL/);
+});
+
+test("static hosting failures are identified instead of presented as bad credentials or missing secrets", () => {
+  assert.match(mainSource, /state\.apiUnavailable/);
+  assert.match(mainSource, /response\.headers\.get\("content-type"\)/);
+  assert.match(mainSource, /Backend unavailable on this deployment/);
+  assert.match(mainSource, /GitHub Pages and plain static hosting cannot run the \/api\/auth/);
+  assert.match(mainSource, /Deploy to Vercel/);
 });
