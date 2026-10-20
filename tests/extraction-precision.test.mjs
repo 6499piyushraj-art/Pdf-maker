@@ -8,7 +8,7 @@ const audit = await readFile(new URL("../api/audit.ts", import.meta.url), "utf8"
 
 test("PDF pages are sent to Gemini at higher resolution and quality", () => {
   assert.equal((main.match(/Math\.min\(2, 1600 \/ baseViewport\.width\)/g) || []).length, 2);
-  assert.equal((main.match(/canvas\.toDataURL\("image\/jpeg", 0\.82\)/g) || []).length, 0);
+  assert.equal((main.match(/canvas\.toDataURL\("image\/jpeg", 0\.82\)/g) || []).length, 1);
 });
 
 test("selectable PDF text preserves end-of-line boundaries", () => {
