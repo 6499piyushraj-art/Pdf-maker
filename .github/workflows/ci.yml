@@ -18,5 +18,17 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm test
       - run: npm run typecheck
-      - run: npm run build
-      - run: npm run test:dist
+
+      - name: Build the Vercel/domain-root version
+        run: npm run build
+      - name: Verify Vercel production assets
+        run: npm run test:dist
+
+      - name: Build the GitHub Pages/project-subpath version
+        run: npm run build
+        env:
+          GITHUB_PAGES: "true"
+      - name: Verify GitHub Pages production assets
+        run: npm run test:dist
+        env:
+          GITHUB_PAGES: "true"
