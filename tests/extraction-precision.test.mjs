@@ -61,7 +61,7 @@ test("zero-question results trigger automatic multi-pass crop recovery", () => {
 });
 
 test("focused-only fallback labels crops honestly and accepts crop-only image payloads", () => {
-  assert.match(extract, /focused-only fallback: all attached images are overlapping crops/i);
+  assert.match(extract, /focused-only fallback: each attached image is a crop/i);
   assert.match(extract, /focusedOnly \? "FOCUSED CROP 1/);
   assert.match(extract, /!imageData && imageDataSegments.length === 0/);
 });
