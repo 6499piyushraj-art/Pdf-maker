@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { protectedApiError } from "../src/server/auth";
 import { hasGeminiApiKey, withGeminiApiKeyFailover } from "../src/server/gemini";
 
-type Input = { fileName?: unknown; pageNumber?: unknown; pageText?: unknown; imageData?: unknown; questions?: unknown };
+type Input = { fileName?: unknown; pageNumber?: unknown; pageText?: unknown; imageData?: unknown; imageDataSegments?: unknown; questions?: unknown };
 type Candidate = { questionText: string; options: string[]; diagramDescription: string; confidence: number; reviewRequired: boolean; reviewNotes: string[] };
 function json(res: VercelResponse, status: number, body: unknown) {
   return res.status(status).setHeader("Cache-Control", "no-store").setHeader("X-Content-Type-Options", "nosniff").setHeader("Content-Type", "application/json; charset=utf-8").json(body);
@@ -30,9 +30,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const pageNumber = Number(body.pageNumber);
   const pageText = str(body.pageText, 30000);
   const imageData = typeof body.imageData === "string" ? body.imageData : "";
+  const imageDataSegments = Array.isArray(body.imageDataSegments) ? body.imageDataSegments.filter((v): v is string => typeof v === "string") : [];
+  const imageBytesTotal = imageData.length + imageDataSegments.reduce((sum, value) => sum + value.length, 0);
+  if (imageDataSegments.length > 2 || imageData.length > 2000000 || imageDataSegments.some(value => value.length > 1500000) || imageBytesTotal > 4400000) return json(res, 413, { error: "Focused page images are too large. Try a lower-resolution PDF." });
   if (!Number.isInteger(pageNumber) || pageNumber < 1) return json(res, 400, { error: "Invalid page number." });
   if (body.questions.length > 40) return json(res, 413, { error: "Too many questions for one page audit." });
-  if (imageData && (imageData.length > 3600000 || !/^[A-Za-z0-9+/=]+$/.test(imageData))) return json(res, 413, { error: "Rendered page image is too large or invalid." });
+  if ([imageData, ...imageDataSegments].some(value => value && !/^[A-Za-z0-9+/=]+$/.test(value))) return json(res, 400, { error: "Rendered page image data is invalid." });
   const questions = body.questions.map((q: any) => ({
     questionText: str(q?.questionText, 8000),
     options: Array.isArray(q?.options) ? q.options.slice(0, 12).map((v: unknown) => str(v, 1500)) : [],
@@ -41,7 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!hasGeminiApiKey()) return json(res, 503, { error: "Configure a Gemini API key on the server before auditing pages." });
 
   const prompt = [
-    "Perform an independent SECOND-PASS visual completeness audit for the ENTIRE PDF page. Scan the attached page IMAGE from top to bottom and left to right, including columns, small print, margins and the bottom edge; compare it with the selectable text and extracted questions.",
+    "Perform an independent SECOND-PASS visual completeness audit using every supplied view of the SAME page: full slide plus focused overlapping crops. Check the crops separately for small print that may be hard to read in the full-slide view.",
     "The image is authoritative for whether a question is visibly present, diagrams, equations, labels and layout. The selectable text is a second source, not a substitute for looking at the image. Look for every omitted numbered question and subquestion, options, question statements without a question mark, small/faint/scanned text, cut-off wording, math symbols/units, diagram/table/graph-dependent questions, and text continued from another page.",
     "Independently re-read the page; do not assume the first pass is complete or correct. Even if FIRST-PASS QUESTIONS is empty, extract all clearly visible missing questions into missingQuestions. A question need not end in a question mark. Do not solve anything or return answers, solutions, hints or explanations. Never invent unreadable content; if a question is visibly there but partly unreadable, preserve the visible fragment, mark uncertainty with [unclear], and set reviewRequired=true. Avoid duplicates of existing items. If the page truly has no questions, return an empty missingQuestions array.",
     "Return JSON only: {\"issues\":[{\"questionIndex\":0,\"issue\":\"short concrete note\"}],\"missingQuestions\":[{\"questionText\":\"...\",\"options\":[\"...\"],\"diagramDescription\":\"\",\"confidence\":0.0,\"reviewRequired\":true,\"reviewNotes\":[]}],\"summary\":\"short status\"}",
@@ -53,7 +56,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   ].join("\n");
   try {
     const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [{ text: prompt }];
-    if (imageData) parts.push({ inlineData: { mimeType: "image/jpeg", data: imageData } });
+    if (imageData) parts.push({ text: "FULL PAGE VIEW (context):" }, { inlineData: { mimeType: "image/jpeg", data: imageData } });
+    imageDataSegments.forEach((data, index) => parts.push({ text: `FOCUSED CROP ${index + 1} (same page; check for omitted questions):` }, { inlineData: { mimeType: "image/jpeg", data } }));
     const result = await withGeminiApiKeyFailover((ai) => ai.models.generateContent({
       model: process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite",
       contents: [{ role: "user", parts }],
