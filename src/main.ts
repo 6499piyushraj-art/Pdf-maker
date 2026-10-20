@@ -42,6 +42,37 @@ const jsonPost = async (url: string, body: unknown) => {
   return data;
 };
 
+
+async function extractPageWithFocusedFallback(input: {
+  fileName: string;
+  pageNumber: number;
+  pageCount: number;
+  pageText: string;
+  imageData: string;
+  imageDataSegments: string[];
+}): Promise<any> {
+  const result = await jsonPost("/api/extract", { ...input });
+  if (!Array.isArray(result?.questions) || result.questions.length > 0 || input.imageDataSegments.length < 2) return result;
+  // If the full-slide pass missed everything, make one focused-only call rather than silently accepting zero.
+  try {
+    const focused = await jsonPost("/api/extract", {
+      fileName: input.fileName,
+      pageNumber: input.pageNumber,
+      pageCount: input.pageCount,
+      pageText: input.pageText,
+      imageData: input.imageDataSegments[0],
+      imageDataSegments: [input.imageDataSegments[1]],
+      focusedOnly: true
+    });
+    if (Array.isArray(focused?.questions) && focused.questions.length > 0) {
+      return { ...focused, focusedFallbackUsed: true };
+    }
+    return { ...result, focusedFallbackAttempted: true };
+  } catch {
+    return { ...result, focusedFallbackAttempted: true };
+  }
+}
+
 async function checkAuth() {
   state.apiUnavailable = false;
   try {
@@ -192,13 +223,13 @@ async function processFiles() {
           if (!context) throw new Error("Could not render the PDF page.");
           await page.render({ canvas, canvasContext: context, viewport }).promise;
           const { imageData, imageDataSegments } = makePageImagePayload(canvas);
-          const result = await jsonPost("/api/extract", { fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData, imageDataSegments });
+          const result = await extractPageWithFocusedFallback({ fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData, imageDataSegments });
           const newQuestions: Question[] = (result.questions || []).map((q: any, i: number) => ({
             id: crypto.randomUUID(), fileName: file.name, pageNumber,
             questionText: String(q.questionText || ""), options: Array.isArray(q.options) ? q.options.map(String) : [],
 diagramDescription: String(q.diagramDescription || ""),
             confidence: Number.isFinite(q.confidence) ? Math.max(0, Math.min(1, q.confidence)) : 0.5,
-            reviewRequired: Boolean(q.reviewRequired), reviewNotes: Array.isArray(q.reviewNotes) ? q.reviewNotes.map(String) : []
+            reviewRequired: Boolean(q.reviewRequired) || Boolean(result.focusedFallbackUsed), reviewNotes: [...(Array.isArray(q.reviewNotes) ? q.reviewNotes.map(String) : []), ...(result.focusedFallbackUsed ? ["Recovered by focused-only fallback; verify against the source PDF."] : [])]
           }));
           let audit: any = { issues: [] };
           try {
@@ -250,13 +281,13 @@ async function retryPage(fileName: string, pageNumber: number) {
     if (!context) throw new Error("Could not render the PDF page.");
     await page.render({ canvas, canvasContext: context, viewport }).promise;
     const { imageData, imageDataSegments } = makePageImagePayload(canvas);
-    const result = await jsonPost("/api/extract", { fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData, imageDataSegments });
+    const result = await extractPageWithFocusedFallback({ fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData, imageDataSegments });
     const questions: Question[] = (result.questions || []).map((q: any) => ({
       id: crypto.randomUUID(), fileName: file.name, pageNumber,
       questionText: String(q.questionText || ""), options: Array.isArray(q.options) ? q.options.map(String) : [],
 diagramDescription: String(q.diagramDescription || ""),
       confidence: Number.isFinite(q.confidence) ? Math.max(0, Math.min(1, q.confidence)) : 0.5,
-      reviewRequired: Boolean(q.reviewRequired), reviewNotes: Array.isArray(q.reviewNotes) ? q.reviewNotes.map(String) : []
+      reviewRequired: Boolean(q.reviewRequired) || Boolean(result.focusedFallbackUsed), reviewNotes: [...(Array.isArray(q.reviewNotes) ? q.reviewNotes.map(String) : []), ...(result.focusedFallbackUsed ? ["Recovered by focused-only fallback; verify against the source PDF."] : [])]
     }));
     try {
       const audit = await jsonPost("/api/audit", { fileName: file.name, pageNumber, pageText, imageData, imageDataSegments, questions: questions.map(q => ({ questionText: q.questionText, options: q.options, diagramDescription: q.diagramDescription })) });
