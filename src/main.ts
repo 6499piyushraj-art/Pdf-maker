@@ -86,6 +86,7 @@ app.addEventListener("submit", async (event) => {
   try {
     await jsonPost("/api/auth", { password });
     state.authenticated = true;
+    await refreshGoogleDocsStatus();
   } catch (error) { state.message = error instanceof Error ? error.message : "Sign-in failed."; }
   render();
 });
