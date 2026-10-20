@@ -7,7 +7,7 @@ const extract = await readFile(new URL("../api/extract.ts", import.meta.url), "u
 const audit = await readFile(new URL("../api/audit.ts", import.meta.url), "utf8");
 
 test("PDF pages are sent to Gemini at higher resolution and quality", () => {
-  assert.equal((main.match(/Math\.min\(2, 1600 \/ baseViewport\.width\)/g) || []).length, 2);
+  assert.equal((main.match(/Math\.min\(2, 2560 \/ baseViewport\.width\)/g) || []).length, 2);
   assert.equal((main.match(/canvas\.toDataURL\("image\/jpeg", 0\.82\)/g) || []).length, 1);
 });
 
@@ -46,6 +46,8 @@ test("image-only PDF requests include full and focused overlapping views on init
   assert.match(audit, /imageBytesTotal > 4400000/);
 });
 
-test("pages with zero detected questions explicitly ask the user to verify them", () => {
+test("pages with zero detected questions explicitly ask the user to verify them and can be re-scanned", () => {
   assert.match(main, /No questions detected — manually verify this page/);
+  assert.match(main, /p.status==="failed"\|\|p.questions===0/);
+  assert.match(main, /Re-scan page/);
 });
