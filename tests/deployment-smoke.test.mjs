@@ -7,6 +7,9 @@ const viteConfig = await readFile(new URL("../vite.config.ts", import.meta.url),
 const vercel = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
 const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
 const pagesWorkflow = await readFile(new URL("../.github/workflows/deploy-pages.yml", import.meta.url), "utf8");
+const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+const server = await readFile(new URL("../server.ts", import.meta.url), "utf8");
+const tsconfig = JSON.parse(await readFile(new URL("../tsconfig.json", import.meta.url), "utf8"));
 
 test("index has visible startup diagnostics instead of an empty app root", () => {
   assert.match(index, /id="app"[\s\S]*startup-fallback/);
@@ -24,6 +27,19 @@ test("Vercel and GitHub Pages use different, explicit Vite base paths", () => {
   assert.ok(vercel.functions && Object.keys(vercel.functions).some((key) => key.startsWith("api/")));
 });
 
+test("Render starts a Node server that serves the frontend and API handlers", () => {
+  assert.equal(pkg.scripts.start, "tsx server.ts");
+  assert.ok(pkg.dependencies.express);
+  assert.ok(pkg.dependencies.tsx);
+  assert.ok(tsconfig.include.includes("server.ts"));
+  assert.match(server, /app\.get\("\/healthz"/);
+  assert.match(server, /app\.all\("\/api\/auth"/);
+  assert.match(server, /app\.all\("\/api\/extract"/);
+  assert.match(server, /app\.all\("\/api\/audit"/);
+  assert.match(server, /app\.use\(express\.static\(distPath/);
+  assert.match(server, /0\.0\.0\.0/);
+});
+
 test("GitHub Pages workflow builds Vite output rather than deploying source TypeScript", () => {
   assert.match(pagesWorkflow, /workflow_dispatch/);
   assert.match(pagesWorkflow, /GITHUB_PAGES:\s*"true"/);
@@ -31,10 +47,11 @@ test("GitHub Pages workflow builds Vite output rather than deploying source Type
   assert.match(pagesWorkflow, /deploy-pages@v4/);
 });
 
-test("docs clearly explain hosting requirements and setup", () => {
+test("docs clearly explain hosting requirements and Render deployment", () => {
   assert.match(readme, /not a plain static HTML page/);
   assert.match(readme, /Pages is static hosting/);
   assert.match(readme, /6499piyushraj-art\/Pdf-maker/);
   assert.match(readme, /vercel\.com\/new/);
   assert.match(readme, /Vercel deployment URL.*not the GitHub Pages URL/);
+  assert.match(readme, /Render/);
 });
