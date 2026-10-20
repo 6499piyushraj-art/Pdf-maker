@@ -13,7 +13,7 @@ This review reflects the code currently committed to main. Static review and CI 
 | 7 | Authentication and API key safety | Gemini requests stay server-side. API calls require a configured password/session secret and a signed expiring HttpOnly/SameSite cookie; state-changing browser requests require a matching Origin. |
 | 8 | UI and editing | Responsive workspace UI supports search, editing question text/options/answer/explanation, manual-review toggles, page logs and retry controls. Mobile-browser testing remains a separate release check. |
 | 9 | DOCX export | Export includes questions, options, detected answers/explanations, diagram notes, source references, confidence/review status and a warning/log for failed pages. Source page images are not embedded in this version. |
-| 10 | Build and tests | GitHub Actions on the latest main commit passed npm install, npm test, TypeScript typecheck and the production Vite build. Live Gemini extraction and Vercel deployment are not verified. |
+| 10 | Build and tests | GitHub Actions on the latest main commit passed npm install, npm test, TypeScript typecheck and the production Vite build. Live Gemini extraction and the Render deployment are not verified. |
 
 ## Verification evidence
 
@@ -26,7 +26,7 @@ This review reflects the code currently committed to main. Static review and CI 
 
 ## Remaining release gates
 
-1. Configure GEMINI_API_KEY, APP_PASSWORD and SESSION_SECRET in Vercel; optionally set GEMINI_MODEL to a model available to the API key.
+1. Configure one or more of GEMINI_API_KEY_1 through GEMINI_API_KEY_7, APP_PASSWORD and SESSION_SECRET in Render; optionally set GEMINI_MODEL to a model available to each configured key.
 2. Test the deployed app with representative text PDFs, scanned PDFs, equations, multi-column pages and diagram-heavy questions.
 3. Confirm that all failed pages can be retried and that the exported DOCX matches the edited question bank.
-4. Review Gemini/Vercel data handling and quotas before uploading sensitive PDFs. AI output must be checked against the source document.
+4. Review Gemini/Render data handling and quotas before uploading sensitive PDFs. AI output must be checked against the source document.

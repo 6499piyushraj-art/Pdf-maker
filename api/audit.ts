@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { GoogleGenAI } from "@google/genai";
 import { protectedApiError } from "../src/server/auth";
+import { hasGeminiApiKey, withGeminiApiKeyFailover } from "../src/server/gemini";
 
 type Input = { fileName?: unknown; pageNumber?: unknown; pageText?: unknown; questions?: unknown };
 function json(res: VercelResponse, status: number, body: unknown) {
@@ -36,8 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     answer: str(q?.answer, 1500)
   }));
   if (!questions.length) return json(res, 200, { issues: [], summary: "No questions were extracted from this page." });
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) return json(res, 503, { error: "GEMINI_API_KEY is not configured on the server." });
+  if (!hasGeminiApiKey()) return json(res, 503, { error: "Configure GEMINI_API_KEY_1 through GEMINI_API_KEY_7 (or legacy GEMINI_API_KEY) on the server." });
   const prompt = `Perform a cautious second-pass quality audit of questions extracted from ONE PDF page. Compare against the supplied page text. Do not invent missing content and do not mark a question wrong merely because the answer is absent. Flag only concrete issues: likely omitted question visible in source, visibly truncated wording, suspiciously missing option, unclear math/units, duplicated extraction, or answer/explanation not supported by the provided text. The source text may itself be incomplete, so phrase uncertain findings as "check". Do not rewrite the source.
 Return JSON only: {"issues":[{"questionIndex":0,"issue":"short actionable note"}],"summary":"short summary"}
 File: ${fileName}; page: ${pageNumber}
@@ -46,12 +45,11 @@ ${pageText || "[No selectable text was available; audit completeness is limited.
 EXTRACTED QUESTIONS (index is zero-based):
 ${JSON.stringify(questions)}`;
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const result = await ai.models.generateContent({
+    const result = await withGeminiApiKeyFailover((ai) => ai.models.generateContent({
       model: process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash",
       contents: prompt,
       config: { responseMimeType: "application/json", temperature: 0.1 }
-    });
+    }));
     const parsed = parseModelJson(result.text || "");
     const issues = Array.isArray(parsed?.issues) ? parsed.issues.slice(0, 30).map((issue: any) => ({
       questionIndex: Number.isInteger(issue?.questionIndex) ? issue.questionIndex : -1,

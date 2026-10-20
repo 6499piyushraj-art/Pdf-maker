@@ -6,6 +6,7 @@ const originalPassword = process.env.APP_PASSWORD;
 const originalSecret = process.env.SESSION_SECRET;
 const originalNodeEnv = process.env.NODE_ENV;
 const originalGeminiKey = process.env.GEMINI_API_KEY;
+const originalNumberedGeminiKeys = Array.from({ length: 7 }, (_, index) => process.env[`GEMINI_API_KEY_${index + 1}`]);
 
 function fakeResponse() {
   const headers = {};
@@ -17,6 +18,7 @@ function fakeRequest(cookie = "", forwardedProto = "http") {
 function configure() {
   process.env.APP_PASSWORD = "this-is-a-long-private-password";
   process.env.SESSION_SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef";
+  for (let slot = 1; slot <= 7; slot += 1) delete process.env[`GEMINI_API_KEY_${slot}`];
   process.env.GEMINI_API_KEY = "test-only-key";
   process.env.NODE_ENV = "development";
 }
@@ -25,6 +27,7 @@ function restore() {
   if (originalSecret === undefined) delete process.env.SESSION_SECRET; else process.env.SESSION_SECRET = originalSecret;
   if (originalNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = originalNodeEnv;
   if (originalGeminiKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = originalGeminiKey;
+  originalNumberedGeminiKeys.forEach((value, index) => { if (value === undefined) delete process.env[`GEMINI_API_KEY_${index + 1}`]; else process.env[`GEMINI_API_KEY_${index + 1}`] = value; });
 }
 
 test("requires a long password and a 32-character session secret", () => {
@@ -79,5 +82,8 @@ test("requires an explicit matching origin for browser state-changing requests",
   assert.equal(workspaceConfigured(), true);
   delete process.env.GEMINI_API_KEY;
   assert.equal(workspaceConfigured(), false);
+  process.env.GEMINI_API_KEY_2 = "test-only-key-2";
+  assert.equal(workspaceConfigured(), true);
+  delete process.env.GEMINI_API_KEY_2;
   restore();
 });

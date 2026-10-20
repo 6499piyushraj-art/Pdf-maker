@@ -7,15 +7,16 @@ PaperPilot is a password-protected workspace for extracting questions from PDF s
 1. Open the [Render dashboard](https://dashboard.render.com/) and create a **Web Service** from `https://github.com/6499piyushraj-art/Pdf-maker`, branch `main`.
 2. Runtime: **Node**. Build command: `npm install --no-audit --no-fund && npm run build`. Start command: `npm start`. Render supplies `PORT`; the server binds to `0.0.0.0`.
 3. Add these Environment Variables in Render's Environment tab. Do not put their values in GitHub or share them in chat:
-   - `GEMINI_API_KEY`: your Google AI Studio Gemini API key.
+   - `GEMINI_API_KEY_1` through `GEMINI_API_KEY_7`: up to seven server-only Gemini API keys. Fill the slots in priority order; empty slots are skipped.
+   - `GEMINI_API_KEY`: optional legacy fallback, attempted after the numbered slots.
    - `APP_PASSWORD`: a unique password of at least 12 characters.
    - `SESSION_SECRET`: a separate random secret of at least 32 characters.
    - `GEMINI_MODEL`: optional; defaults to `gemini-2.5-flash`.
-   Save changes and redeploy. The app intentionally reports the workspace as not configured until the first three required values are present.
+   Save changes and redeploy. The app reports the workspace as configured when the login secrets and at least one Gemini key are present.
 4. Wait for the deploy to become **Live**, then open the Render URL.
 5. Verify `/healthz` returns `{"ok":true}`, and `/api/auth` returns JSON with `configured: true` and `authenticated: false` before sign-in. Use `APP_PASSWORD` to sign in.
 
-The Render Node server serves the compiled Vite `dist/` files and routes `/api/auth`, `/api/extract`, and `/api/audit` to the existing handlers. The `/healthz` route is safe for service health checks.
+The Render Node server serves the compiled Vite `dist/` files and routes `/api/auth`, `/api/extract`, and `/api/audit` to the existing handlers. Gemini extraction and auditing try numbered keys in order and automatically advance to the next configured key when a Gemini request fails. Duplicate keys and blank slots are skipped; the legacy `GEMINI_API_KEY` is kept as a compatibility fallback. This does not guarantee extra quota: Google may enforce limits at project or model level, even when several keys are configured. The `/healthz` route is safe for service health checks.
 
 ## Why a deployment can appear blank
 
@@ -39,7 +40,7 @@ GitHub Pages is static hosting and cannot run the `/api` functions. The reposito
 Requirements: Node.js 22 or newer.
 
 1. Copy `.env.example` to `.env.local`.
-2. Add `GEMINI_API_KEY`, `APP_PASSWORD` (12+ characters), `SESSION_SECRET` (32+ characters), and optionally `GEMINI_MODEL` to `.env.local`.
+2. Fill any of `GEMINI_API_KEY_1` through `GEMINI_API_KEY_7` (and optionally legacy `GEMINI_API_KEY`), plus `APP_PASSWORD` (12+ characters), `SESSION_SECRET` (32+ characters), and optionally `GEMINI_MODEL`.
 3. Run:
 
 ```sh

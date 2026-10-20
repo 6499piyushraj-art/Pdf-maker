@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { hasGeminiApiKey } from "../src/server/gemini";
 import { authConfigured, clearSessionCookie, hasValidSession, requestIsSameOrigin, setSessionCookie, verifyAppPassword, workspaceConfigured } from "../src/server/auth";
 
 function json(res: VercelResponse, status: number, payload: unknown) {
@@ -28,7 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return json(res, 200, { authenticated: false });
   }
 
-  if (!process.env.GEMINI_API_KEY?.trim()) return json(res, 503, { error: "Set GEMINI_API_KEY in the hosting environment before signing in." });
+  if (!hasGeminiApiKey()) return json(res, 503, { error: "Set at least one of GEMINI_API_KEY_1 through GEMINI_API_KEY_7 (or legacy GEMINI_API_KEY) in the hosting environment before signing in." });
 
   const password = body && typeof body === "object" && typeof body.password === "string" ? body.password : "";
   if (!verifyAppPassword(password)) return json(res, 401, { error: "Incorrect password." });

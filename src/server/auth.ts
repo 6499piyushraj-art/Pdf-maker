@@ -1,5 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { hasGeminiApiKey } from "./gemini.ts";
 
 const COOKIE_NAME = "paperpilot_session";
 const SESSION_SECONDS = 7 * 24 * 60 * 60;
@@ -9,7 +10,7 @@ export function authConfigured(): boolean {
 }
 
 export function workspaceConfigured(): boolean {
-  return authConfigured() && Boolean(process.env.GEMINI_API_KEY?.trim());
+  return authConfigured() && hasGeminiApiKey();
 }
 
 export function verifyAppPassword(candidate: string): boolean {
