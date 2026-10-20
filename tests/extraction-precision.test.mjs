@@ -72,5 +72,5 @@ test("zero-result recovery independently retries each focused crop and merges ca
   assert.match(main, /for \(const \[index, cropData\] of input\.imageDataSegments\.entries\(\)\)/);
   assert.match(main, /focusedFallbackPasses/);
   assert.match(extract, /Question \[JEE Mains-2023\]/);
-  assert.match(extract, /ignore handwritten working, ticks, circles and answers/);
+  assert.match(extract, /ignoring handwritten working, ticks, circles and answers/);
 });
