@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { GoogleGenAI } from "@google/genai";
 import { protectedApiError } from "../src/server/auth";
+import { hasGeminiApiKey, withGeminiApiKeyFailover } from "../src/server/gemini";
 import { shouldFlagForReview } from "../src/lib/question-quality";
 
 type Input = { fileName?: unknown; pageNumber?: unknown; pageCount?: unknown; pageText?: unknown; imageData?: unknown };
@@ -38,8 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!Number.isInteger(pageNumber) || pageNumber < 1 || !Number.isInteger(pageCount) || pageCount < pageNumber) return json(res, 400, { error: "Invalid PDF page metadata." });
   if (!pageText && !imageData) return json(res, 422, { error: "This page has no readable text or rendered image." });
   if (imageData && (imageData.length > 3600000 || !/^[A-Za-z0-9+/=]+$/.test(imageData))) return json(res, 413, { error: "Rendered page image is too large. Try a lower-resolution PDF." });
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) return json(res, 503, { error: "GEMINI_API_KEY is not configured on the server." });
+  if (!hasGeminiApiKey()) return json(res, 503, { error: "Configure GEMINI_API_KEY_1 through GEMINI_API_KEY_7 (or legacy GEMINI_API_KEY) on the server." });
 
   const prompt = `You are a careful PDF question extraction system. Extract EVERY educational question visible on this single PDF page, in exact reading order. Do not invent text. Preserve mathematical notation, variables, units, superscripts/subscripts when possible, option labels and ordering. Include diagram-dependent questions and describe the visible diagram without guessing missing labels. Use "[unclear]" for illegible parts and flag those for human review. If the page contains no question, return an empty questions array. A question may continue from another page; only extract what is actually visible here and mention incomplete context in reviewNotes.
 Return JSON only in this shape:
@@ -50,14 +49,13 @@ Extracted page text (may be incomplete; image is authoritative for layout):
 ${pageText || "[No selectable text; inspect the page image.]"}`;
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
     const parts: Array<{text:string} | {inlineData:{mimeType:string;data:string}}> = [{ text: prompt }];
     if (imageData) parts.push({ inlineData: { mimeType: "image/jpeg", data: imageData } });
-    const result = await ai.models.generateContent({
+    const result = await withGeminiApiKeyFailover((ai) => ai.models.generateContent({
       model: process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash",
       contents: [{ role: "user", parts }],
       config: { responseMimeType: "application/json", temperature: 0.1 }
-    });
+    }));
     const parsed = parseModelJson(result.text || "");
     if (!parsed || !Array.isArray(parsed.questions)) return json(res, 502, { error: "Gemini response did not contain a questions array." });
     const questions = (parsed.questions as RawQuestion[]).slice(0, 40).map((q) => {
