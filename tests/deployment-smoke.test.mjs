@@ -48,10 +48,10 @@ test("GitHub Pages workflow builds Vite output rather than deploying source Type
 });
 
 test("docs clearly explain hosting requirements and Render deployment", () => {
-  assert.match(readme, /not a plain static HTML page/);
-  assert.match(readme, /Pages is static hosting/);
+  assert.match(readme, /not a plain HTML page/);
+  assert.match(readme, /GitHub Pages is static hosting/);
   assert.match(readme, /6499piyushraj-art\/Pdf-maker/);
-  assert.match(readme, /vercel\.com\/new/);
-  assert.match(readme, /Vercel deployment URL.*not the GitHub Pages URL/);
   assert.match(readme, /Render/);
+  assert.match(readme, /npm start/);
+  assert.match(readme, /GEMINI_API_KEY/);
 });
