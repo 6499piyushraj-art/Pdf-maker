@@ -51,3 +51,16 @@ test("pages with zero detected questions explicitly ask the user to verify them 
   assert.match(main, /p.status==="failed"\|\|p.questions===0/);
   assert.match(main, /Re-scan page/);
 });
+
+test("zero-question result triggers one focused-only fallback call", () => {
+  assert.match(main, /async function extractPageWithFocusedFallback/);
+  assert.match(main, /result\.questions\.length > 0/);
+  assert.match(main, /focusedOnly: true/);
+  assert.match(main, /Recovered by focused-only fallback/);
+});
+
+test("focused-only fallback labels crops honestly and accepts crop-only image payloads", () => {
+  assert.match(extract, /focused-only fallback: all attached images are overlapping crops/i);
+  assert.match(extract, /focusedOnly \? "FOCUSED CROP 1/);
+  assert.match(extract, /!imageData && imageDataSegments.length === 0/);
+});
