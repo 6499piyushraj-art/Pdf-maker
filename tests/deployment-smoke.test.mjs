@@ -11,6 +11,8 @@ const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url
 const server = await readFile(new URL("../server.ts", import.meta.url), "utf8");
 const tsconfig = JSON.parse(await readFile(new URL("../tsconfig.json", import.meta.url), "utf8"));
 const npmrc = await readFile(new URL("../.npmrc", import.meta.url), "utf8");
+const geminiHelper = await readFile(new URL("../src/server/gemini.ts", import.meta.url), "utf8");
+const envExample = await readFile(new URL("../.env.example", import.meta.url), "utf8");
 
 test("index has visible startup diagnostics instead of an empty app root", () => {
   assert.match(index, /id="app"[\s\S]*startup-fallback/);
@@ -55,5 +57,10 @@ test("docs clearly explain hosting requirements and Render deployment", () => {
   assert.match(readme, /6499piyushraj-art\/Pdf-maker/);
   assert.match(readme, /Render/);
   assert.match(readme, /npm start/);
-  assert.match(readme, /GEMINI_API_KEY/);
+  assert.match(readme, /GEMINI_API_KEY_1/);
+  assert.match(readme, /GEMINI_API_KEY_7/);
+  assert.match(envExample, /GEMINI_API_KEY_7=/);
+  assert.match(geminiHelper, /for \(let slot = 1; slot <= NUMBERED_KEY_SLOTS; slot \+= 1\)/);
+  assert.match(geminiHelper, /runWithGeminiKeyFailover/);
+  assert.match(geminiHelper, /new GoogleGenAI\(\{ apiKey \}\)/);
 });
