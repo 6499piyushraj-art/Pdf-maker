@@ -31,10 +31,10 @@ test("GitHub Pages workflow builds Vite output rather than deploying source Type
   assert.match(pagesWorkflow, /deploy-pages@v4/);
 });
 
-test("docs distinguish static GitHub Pages from a full Vercel deployment", () => {
-  assert.match(readme, /can show a blank page/);
+test("docs clearly explain hosting requirements and setup", () => {
+  assert.match(readme, /not a plain static HTML page/);
   assert.match(readme, /Pages is static hosting/);
   assert.match(readme, /6499piyushraj-art\/Pdf-maker/);
-  assert.match(readme, /vercel.com\/new/);
+  assert.match(readme, /vercel\.com\/new/);
   assert.match(readme, /Vercel deployment URL.*not the GitHub Pages URL/);
 });
