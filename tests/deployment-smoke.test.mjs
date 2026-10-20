@@ -10,6 +10,7 @@ const pagesWorkflow = await readFile(new URL("../.github/workflows/deploy-pages.
 const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const server = await readFile(new URL("../server.ts", import.meta.url), "utf8");
 const tsconfig = JSON.parse(await readFile(new URL("../tsconfig.json", import.meta.url), "utf8"));
+const npmrc = await readFile(new URL("../.npmrc", import.meta.url), "utf8");
 
 test("index has visible startup diagnostics instead of an empty app root", () => {
   assert.match(index, /id="app"[\s\S]*startup-fallback/);
@@ -38,6 +39,7 @@ test("Render starts a Node server that serves the frontend and API handlers", ()
   assert.match(server, /app\.all\("\/api\/audit"/);
   assert.match(server, /app\.use\(express\.static\(distPath/);
   assert.match(server, /0\.0\.0\.0/);
+  assert.match(npmrc, /include=dev/);
 });
 
 test("GitHub Pages workflow builds Vite output rather than deploying source TypeScript", () => {
@@ -48,7 +50,7 @@ test("GitHub Pages workflow builds Vite output rather than deploying source Type
 });
 
 test("docs clearly explain hosting requirements and Render deployment", () => {
-  assert.match(readme, /not a plain HTML page/);
+  assert.match(readme, /not a plain static HTML page/);
   assert.match(readme, /GitHub Pages is static hosting/);
   assert.match(readme, /6499piyushraj-art\/Pdf-maker/);
   assert.match(readme, /Render/);
