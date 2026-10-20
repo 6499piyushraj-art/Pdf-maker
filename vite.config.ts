@@ -1,8 +1,10 @@
 import { defineConfig } from "vite";
 
+const isGitHubPages = process.env.GITHUB_PAGES === "true";
+
 export default defineConfig({
-  // This app is deployed at the domain root on Vercel and uses Vercel serverless /api routes.
-  base: "/",
+  // Vercel serves at the domain root; GitHub project Pages uses /Pdf-maker/.
+  base: isGitHubPages ? "/Pdf-maker/" : "/",
   build: {
     target: "es2022",
     sourcemap: false
