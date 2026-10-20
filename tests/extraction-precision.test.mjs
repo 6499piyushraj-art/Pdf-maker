@@ -54,7 +54,7 @@ test("pages with zero detected questions explicitly ask the user to verify them 
 
 test("zero-question results trigger automatic multi-pass crop recovery", () => {
   assert.match(main, /async function extractPageWithFocusedFallback/);
-  assert.match(main, /initial\\.questions\\.length > 0/);
+  assert.match(main, /initial\.questions\.length > 0/);
   assert.match(main, /focusedOnly: true/);
   assert.match(main, /Passes 3–4: ask about each crop separately/);
   assert.match(main, /Recovered by focused-only fallback/);
