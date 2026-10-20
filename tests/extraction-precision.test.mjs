@@ -13,7 +13,7 @@ test("PDF pages are sent to Gemini at a substantially higher image resolution an
 
 test("selectable PDF text preserves end-of-line boundaries for OCR/model context", () => {
   assert.equal((main.match(/"hasEOL" in item && item\.hasEOL/g) || []).length, 2);
-  assert.match(main, /replace\(\/[ \\t\]\+\\n\/g, "\\n"\)/);
+  assert.ok(main.includes('replace(/[ \\t]+\\n/g, "\\n")'));
 });
 
 test("first-pass extraction instructions require a complete page scan and exact question-only content", () => {
