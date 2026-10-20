@@ -10,7 +10,7 @@ GitHub Pages is also static-only and cannot run this app's /api/auth, /api/extra
 
 ## What it does
 
-- Accepts up to 20 PDFs, up to 45 MB each, and up to 1,000 pages per batch, in source order.
+- Accepts up to 20 PDFs, up to 20 MB each, processed in source order.
 - Reads selectable text and renders each page locally so Gemini can inspect scans, equations, symbols, options, tables, and diagrams.
 - Keeps question text, options, visible answers/explanations, diagram descriptions, confidence, source filename, and page number.
 - Flags low-confidence or unclear content and preserves successful results if individual pages fail. Failed pages can be retried.
@@ -25,7 +25,7 @@ GitHub Pages is also static-only and cannot run this app's /api/auth, /api/extra
    - GEMINI_API_KEY: a server-side Google AI Studio API key.
    - APP_PASSWORD: a unique workspace password of at least 12 characters.
    - SESSION_SECRET: a separate random value of at least 32 characters.
-   - GEMINI_MODEL: optional; defaults to gemini-3.8-flash. Use a model available to your API key.
+   - GEMINI_MODEL: optional; defaults to gemini-2.5-flash. Use a model available to your API key.
 4. Redeploy after setting the variables. Open the Vercel deployment URL, not the GitHub Pages URL, and sign in using APP_PASSWORD.
 5. Check https://YOUR-VERCEL-DOMAIN/api/auth: it should return JSON, not an HTML 404. Its configured field should be true after the required environment variables are set.
 
