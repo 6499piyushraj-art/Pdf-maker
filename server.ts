@@ -4,6 +4,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import authHandler from "./api/auth.ts";
 import extractHandler from "./api/extract.ts";
 import auditHandler from "./api/audit.ts";
+import googleHandler from "./api/google.ts";
 
 const app = express();
 const port = Number.parseInt(process.env.PORT || "10000", 10);
@@ -26,6 +27,7 @@ const route = (handler: (req: VercelRequest, res: VercelResponse) => unknown) =>
 app.all("/api/auth", route(authHandler));
 app.all("/api/extract", route(extractHandler));
 app.all("/api/audit", route(auditHandler));
+app.all("/api/google", route(googleHandler));
 
 app.use(express.static(distPath, {
   index: "index.html",
