@@ -73,7 +73,7 @@ function render() {
     ${q.options.length?'<label class="field-label">Options</label>'+q.options.map((o,j)=>`<input class="option-edit" data-option="${j}" data-id="${q.id}" value="${escapeHtml(o)}">`).join(""):""}
     ${q.diagramDescription?'<p class="diagram-note">Diagram: '+escapeHtml(q.diagramDescription)+'</p>':""}
     ${q.reviewNotes.length?'<p class="review-note">'+escapeHtml(q.reviewNotes.join(" · "))+'</p>':""}
-    <div class="card-footer"><span>Confidence ${Math.round(q.confidence*100)}%</span><label class="review-toggle"><input type="checkbox" data-review="${q.id}" ${q.reviewRequired?"checked":""}> Needs manual review</label></div></article>`).join("") : '<div class="empty-state"><div>✧</div><h3>No questions yet</h3><p>Choose your PDFs above, then start extraction.</p></div>') : (state.pages.length ? state.pages.map(p=>`<div class="page-row"><span class="status-dot ${p.status}"></span><div><strong>${escapeHtml(p.fileName)} · page ${p.pageNumber}</strong><small>${p.status==="done"?p.questions+" question(s) extracted":escapeHtml(p.error||"Processing failed")}</small></div>${p.status==="failed"?'<button class="retry secondary" data-file="'+escapeHtml(p.fileName)+'" data-page="'+p.pageNumber+'">Retry page</button>':""}</div>`).join(""):'<div class="empty-state"><h3>No pages processed yet</h3><p>Your page-by-page progress will appear here.</p></div>')}
+    <div class="card-footer"><span>Confidence ${Math.round(q.confidence*100)}%</span><label class="review-toggle"><input type="checkbox" data-review="${q.id}" ${q.reviewRequired?"checked":""}> Needs manual review</label></div></article>`).join("") : '<div class="empty-state"><div>✧</div><h3>No questions yet</h3><p>Choose your PDFs above, then start extraction.</p></div>') : (state.pages.length ? state.pages.map(p=>`<div class="page-row"><span class="status-dot ${p.status}"></span><div><strong>${escapeHtml(p.fileName)} · page ${p.pageNumber}</strong><small>${p.status==="done"?(p.questions===0?"No questions detected — manually verify this page; faint/scanned questions can be missed":p.questions+" question(s) extracted"):escapeHtml(p.error||"Processing failed")}</small></div>${p.status==="failed"?'<button class="retry secondary" data-file="'+escapeHtml(p.fileName)+'" data-page="'+p.pageNumber+'">Retry page</button>':""}</div>`).join(""):'<div class="empty-state"><h3>No pages processed yet</h3><p>Your page-by-page progress will appear here.</p></div>')}
   </section><footer><span>PaperPilot AI</span><span>AI extraction can make mistakes. Always verify important answers.</span></footer></main>`;
 }
 
@@ -162,15 +162,15 @@ async function processFiles() {
         try {
           const page = await pdf.getPage(pageNumber);
           const textContent = await page.getTextContent();
-          pageText = textContent.items.map(item => "str" in item ? item.str : "").join(" ").replace(/\s+/g, " ").trim();
+          pageText = textContent.items.map((item) => "str" in item ? item.str + ("hasEOL" in item && item.hasEOL ? "\n" : " ") : "").join("").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
           const baseViewport = page.getViewport({ scale: 1 });
-          const viewport = page.getViewport({ scale: Math.min(1.1, 1000 / baseViewport.width) });
+          const viewport = page.getViewport({ scale: Math.min(2, 1600 / baseViewport.width) });
           const canvas = document.createElement("canvas");
           canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
           const context = canvas.getContext("2d");
           if (!context) throw new Error("Could not render the PDF page.");
           await page.render({ canvas, canvasContext: context, viewport }).promise;
-          const imageData = canvas.toDataURL("image/jpeg", 0.55).split(",")[1];
+          const imageData = canvas.toDataURL("image/jpeg", 0.82).split(",")[1];
           const result = await jsonPost("/api/extract", { fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData });
           const newQuestions: Question[] = (result.questions || []).map((q: any, i: number) => ({
             id: crypto.randomUUID(), fileName: file.name, pageNumber,
@@ -220,15 +220,15 @@ async function retryPage(fileName: string, pageNumber: number) {
     const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
     const page = await pdf.getPage(pageNumber);
     const textContent = await page.getTextContent();
-    const pageText = textContent.items.map(item => "str" in item ? item.str : "").join(" ").replace(/\s+/g, " ").trim();
+    const pageText = textContent.items.map((item) => "str" in item ? item.str + ("hasEOL" in item && item.hasEOL ? "\n" : " ") : "").join("").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
     const baseViewport = page.getViewport({ scale: 1 });
-    const viewport = page.getViewport({ scale: Math.min(1.1, 1000 / baseViewport.width) });
+    const viewport = page.getViewport({ scale: Math.min(2, 1600 / baseViewport.width) });
     const canvas = document.createElement("canvas");
     canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Could not render the PDF page.");
     await page.render({ canvas, canvasContext: context, viewport }).promise;
-    const imageData = canvas.toDataURL("image/jpeg", 0.55).split(",")[1];
+    const imageData = canvas.toDataURL("image/jpeg", 0.82).split(",")[1];
     const result = await jsonPost("/api/extract", { fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData });
     const questions: Question[] = (result.questions || []).map((q: any) => ({
       id: crypto.randomUUID(), fileName: file.name, pageNumber,
