@@ -9,6 +9,8 @@ const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
 const pagesWorkflow = await readFile(new URL("../.github/workflows/deploy-pages.yml", import.meta.url), "utf8");
 const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const server = await readFile(new URL("../server.ts", import.meta.url), "utf8");
+const googleApi = await readFile(new URL("../api/google.ts", import.meta.url), "utf8");
+const googleHelpers = await readFile(new URL("../src/server/google-docs.ts", import.meta.url), "utf8");
 const tsconfig = JSON.parse(await readFile(new URL("../tsconfig.json", import.meta.url), "utf8"));
 const npmrc = await readFile(new URL("../.npmrc", import.meta.url), "utf8");
 const geminiHelper = await readFile(new URL("../src/server/gemini.ts", import.meta.url), "utf8");
@@ -39,6 +41,9 @@ test("Render starts a Node server that serves the frontend and API handlers", ()
   assert.match(server, /app\.all\("\/api\/auth"/);
   assert.match(server, /app\.all\("\/api\/extract"/);
   assert.match(server, /app\.all\("\/api\/audit"/);
+  assert.match(server, /app\.all\("\/api\/google"/);
+  assert.match(googleApi, /action === "export"/);
+  assert.match(googleHelpers, /aes-256-gcm/);
   assert.match(server, /app\.use\(express\.static\(distPath/);
   assert.match(server, /0\.0\.0\.0/);
   assert.match(npmrc, /include=dev/);
@@ -60,6 +65,9 @@ test("docs clearly explain hosting requirements and Render deployment", () => {
   assert.match(readme, /GEMINI_API_KEY_1/);
   assert.match(readme, /GEMINI_API_KEY_7/);
   assert.match(envExample, /GEMINI_API_KEY_7=/);
+  assert.match(envExample, /GEMINI_MODEL=gemini-3\.5-flash-lite/);
+  assert.match(envExample, /GOOGLE_CLIENT_ID=/);
+  assert.match(envExample, /GOOGLE_CLIENT_SECRET=/);
   assert.match(geminiHelper, /for \(let slot = 1; slot <= NUMBERED_KEY_SLOTS; slot \+= 1\)/);
   assert.match(geminiHelper, /runWithGeminiKeyFailover/);
   assert.match(geminiHelper, /new GoogleGenAI\(\{ apiKey \}\)/);
