@@ -1,6 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { hasGeminiApiKey } from "./gemini";
+import { hasGeminiApiKey } from "./gemini.ts";
 
 const COOKIE_NAME = "paperpilot_session";
 const SESSION_SECONDS = 7 * 24 * 60 * 60;
