@@ -14,6 +14,27 @@ type AppState = { authenticated: boolean; configured: boolean; apiUnavailable: b
 const state: AppState = { authenticated: false, configured: false, apiUnavailable: false, busy: false, files: [], questions: [], pages: [], message: "", search: "", activeTab: "questions", googleDocsConfigured: false, googleDocsConnected: false };
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+function makePageImagePayload(canvas: HTMLCanvasElement): { imageData: string; imageDataSegments: string[] } {
+  const imageData = canvas.toDataURL("image/jpeg", 0.82).split(",")[1] || "";
+  // Image-only lecture PDFs often place small printed questions beside large handwritten work.
+  // Keep the full slide for context and add overlapping top/bottom crops for legibility.
+  const cropHeight = Math.max(1, Math.ceil(canvas.height * 0.62));
+  const cropStarts = [0, Math.max(0, canvas.height - cropHeight)];
+  const imageDataSegments = cropStarts.map((startY) => {
+    const crop = document.createElement("canvas");
+    crop.width = canvas.width;
+    crop.height = Math.min(cropHeight, canvas.height - startY);
+    const context = crop.getContext("2d");
+    if (!context) throw new Error("Could not prepare focused PDF image crops.");
+    context.drawImage(canvas, 0, startY, canvas.width, crop.height, 0, 0, crop.width, crop.height);
+    const encoded = crop.toDataURL("image/jpeg", 0.84).split(",")[1] || "";
+    crop.width = 0;
+    crop.height = 0;
+    return encoded;
+  });
+  return { imageData, imageDataSegments };
+}
+
 const jsonPost = async (url: string, body: unknown) => {
   const response = await fetch(url, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const data = await response.json().catch(() => ({}));
@@ -170,8 +191,8 @@ async function processFiles() {
           const context = canvas.getContext("2d");
           if (!context) throw new Error("Could not render the PDF page.");
           await page.render({ canvas, canvasContext: context, viewport }).promise;
-          const imageData = canvas.toDataURL("image/jpeg", 0.82).split(",")[1];
-          const result = await jsonPost("/api/extract", { fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData });
+          const { imageData, imageDataSegments } = makePageImagePayload(canvas);
+          const result = await jsonPost("/api/extract", { fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData, imageDataSegments });
           const newQuestions: Question[] = (result.questions || []).map((q: any, i: number) => ({
             id: crypto.randomUUID(), fileName: file.name, pageNumber,
             questionText: String(q.questionText || ""), options: Array.isArray(q.options) ? q.options.map(String) : [],
@@ -181,7 +202,7 @@ diagramDescription: String(q.diagramDescription || ""),
           }));
           let audit: any = { issues: [] };
           try {
-            audit = await jsonPost("/api/audit", { fileName: file.name, pageNumber, pageText, imageData, questions: newQuestions.map(q => ({ questionText: q.questionText, options: q.options, diagramDescription: q.diagramDescription })) });
+            audit = await jsonPost("/api/audit", { fileName: file.name, pageNumber, pageText, imageData, imageDataSegments, questions: newQuestions.map(q => ({ questionText: q.questionText, options: q.options, diagramDescription: q.diagramDescription })) });
             for (const issue of audit.issues || []) {
               const q = newQuestions[Number(issue.questionIndex)];
               if (q) { q.reviewRequired = true; q.reviewNotes.push(String(issue.issue || "Second-pass audit flagged this question.")); }
@@ -228,8 +249,8 @@ async function retryPage(fileName: string, pageNumber: number) {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Could not render the PDF page.");
     await page.render({ canvas, canvasContext: context, viewport }).promise;
-    const imageData = canvas.toDataURL("image/jpeg", 0.82).split(",")[1];
-    const result = await jsonPost("/api/extract", { fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData });
+    const { imageData, imageDataSegments } = makePageImagePayload(canvas);
+    const result = await jsonPost("/api/extract", { fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData, imageDataSegments });
     const questions: Question[] = (result.questions || []).map((q: any) => ({
       id: crypto.randomUUID(), fileName: file.name, pageNumber,
       questionText: String(q.questionText || ""), options: Array.isArray(q.options) ? q.options.map(String) : [],
@@ -238,7 +259,7 @@ diagramDescription: String(q.diagramDescription || ""),
       reviewRequired: Boolean(q.reviewRequired), reviewNotes: Array.isArray(q.reviewNotes) ? q.reviewNotes.map(String) : []
     }));
     try {
-      const audit = await jsonPost("/api/audit", { fileName: file.name, pageNumber, pageText, imageData, questions: questions.map(q => ({ questionText: q.questionText, options: q.options, diagramDescription: q.diagramDescription })) });
+      const audit = await jsonPost("/api/audit", { fileName: file.name, pageNumber, pageText, imageData, imageDataSegments, questions: questions.map(q => ({ questionText: q.questionText, options: q.options, diagramDescription: q.diagramDescription })) });
       for (const issue of audit.issues || []) {
         const q = questions[Number(issue.questionIndex)];
         if (q) { q.reviewRequired = true; q.reviewNotes.push(String(issue.issue || "Second-pass audit flagged this question.")); }
