@@ -11,8 +11,8 @@ type Question = {
   confidence: number; reviewRequired: boolean; reviewNotes: string[];
 };
 type PageRecord = { fileName: string; pageNumber: number; text: string; status: "done" | "failed"; error?: string; questions: number };
-type AppState = { authenticated: boolean; configured: boolean; busy: boolean; files: File[]; questions: Question[]; pages: PageRecord[]; message: string; search: string; activeTab: "questions" | "pages" };
-const state: AppState = { authenticated: false, configured: false, busy: false, files: [], questions: [], pages: [], message: "", search: "", activeTab: "questions" };
+type AppState = { authenticated: boolean; configured: boolean; apiUnavailable: boolean; busy: boolean; files: File[]; questions: Question[]; pages: PageRecord[]; message: string; search: string; activeTab: "questions" | "pages" };
+const state: AppState = { authenticated: false, configured: false, apiUnavailable: false, busy: false, files: [], questions: [], pages: [], message: "", search: "", activeTab: "questions" };
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const jsonPost = async (url: string, body: unknown) => {
@@ -23,20 +23,33 @@ const jsonPost = async (url: string, body: unknown) => {
 };
 
 async function checkAuth() {
+  state.apiUnavailable = false;
   try {
     const response = await fetch("/api/auth", { credentials: "same-origin", cache: "no-store" });
+    const contentType = response.headers.get("content-type") || "";
+    if (!response.ok || !contentType.toLowerCase().includes("application/json")) {
+      throw new Error("This host did not return the PaperPilot API response.");
+    }
     const data = await response.json();
+    if (typeof data !== "object" || data === null || typeof data.configured !== "boolean") {
+      throw new Error("The PaperPilot API response is not valid.");
+    }
     state.configured = Boolean(data.configured);
     state.authenticated = Boolean(data.authenticated);
-  } catch { state.configured = false; state.authenticated = false; }
+  } catch {
+    state.configured = false;
+    state.authenticated = false;
+    state.apiUnavailable = true;
+    state.message = "This host cannot run PaperPilot's serverless API.";
+  }
   render();
 }
 
 function render() {
   if (!state.authenticated) {
     app.innerHTML = `<main class="login-shell"><div class="brand-mark">P</div><p class="eyebrow">PAPERPILOT AI</p><h1>Your PDFs.<br><span>Your question bank.</span></h1><p class="muted">Extract, check and export questions while keeping your Gemini key on the server.</p>
-      ${!state.configured ? '<div class="notice danger">Setup required: configure GEMINI_API_KEY, APP_PASSWORD and SESSION_SECRET in your hosting environment.</div>' : ""}
-      <form id="login-form" class="login-form"><label for="password">Workspace password</label><input id="password" name="password" type="password" autocomplete="current-password" required minlength="1" placeholder="Enter your password"><button class="primary" type="submit">Unlock workspace <span>→</span></button></form>
+      ${state.apiUnavailable ? '<div class="notice danger"><strong>Backend unavailable on this deployment.</strong><br>GitHub Pages and plain static hosting cannot run the /api/auth, /api/extract and /api/audit endpoints. Deploy the full project on Vercel to sign in and extract PDFs. <a href="https://vercel.com/new" target="_blank" rel="noreferrer">Deploy to Vercel ↗</a></div>' : !state.configured ? '<div class="notice danger">Setup required: configure GEMINI_API_KEY, APP_PASSWORD and SESSION_SECRET in your hosting environment.</div>' : ""}
+      <form id="login-form" class="login-form"><label for="password">Workspace password</label><input id="password" name="password" type="password" autocomplete="current-password" required minlength="1" placeholder="Enter your password" ${state.apiUnavailable ? "disabled" : ""}><button class="primary" type="submit" ${state.apiUnavailable ? "disabled" : ""}>Unlock workspace <span>→</span></button></form>
       <p class="message">${escapeHtml(state.message)}</p><p class="tiny">Your API key is never sent to the browser.</p></main>`;
     return;
   }
