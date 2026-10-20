@@ -3,7 +3,7 @@ import { protectedApiError } from "../src/server/auth";
 import { hasGeminiApiKey, withGeminiApiKeyFailover } from "../src/server/gemini";
 import { shouldFlagForReview } from "../src/lib/question-quality";
 
-type Input = { fileName?: unknown; pageNumber?: unknown; pageCount?: unknown; pageText?: unknown; imageData?: unknown };
+type Input = { fileName?: unknown; pageNumber?: unknown; pageCount?: unknown; pageText?: unknown; imageData?: unknown; imageDataSegments?: unknown };
 type RawQuestion = { questionText?: unknown; options?: unknown; diagramDescription?: unknown; confidence?: unknown; reviewRequired?: unknown; reviewNotes?: unknown };
 
 function json(res: VercelResponse, status: number, body: unknown) {
@@ -35,13 +35,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const pageCount = Number(body.pageCount);
   const pageText = cleanString(body.pageText, 30000);
   const imageData = typeof body.imageData === "string" ? body.imageData : "";
+  const imageDataSegments = Array.isArray(body.imageDataSegments) ? body.imageDataSegments.filter((v): v is string => typeof v === "string") : [];
+  const imageBytesTotal = imageData.length + imageDataSegments.reduce((sum, value) => sum + value.length, 0);
+  if (imageDataSegments.length > 2 || imageData.length > 2000000 || imageDataSegments.some(value => value.length > 1500000) || imageBytesTotal > 4400000) return json(res, 413, { error: "Focused page images are too large. Try a lower-resolution PDF." });
   if (!Number.isInteger(pageNumber) || pageNumber < 1 || !Number.isInteger(pageCount) || pageCount < pageNumber) return json(res, 400, { error: "Invalid PDF page metadata." });
   if (!pageText && !imageData) return json(res, 422, { error: "This page has no readable text or rendered image." });
-  if (imageData && (imageData.length > 3600000 || !/^[A-Za-z0-9+/=]+$/.test(imageData))) return json(res, 413, { error: "Rendered page image is too large. Try a lower-resolution PDF." });
+  if ([imageData, ...imageDataSegments].some(value => value && !/^[A-Za-z0-9+/=]+$/.test(value))) return json(res, 400, { error: "Rendered page image data is invalid." });
   if (!hasGeminiApiKey()) return json(res, 503, { error: "Configure GEMINI_API_KEY_1 through GEMINI_API_KEY_7 (or legacy GEMINI_API_KEY) on the server." });
 
   const prompt = [
-    "You are a meticulous, high-recall exam-question extraction engine. Independently inspect the ENTIRE attached page image from top to bottom and left to right. Do not summarize the page or rely only on selectable PDF text.",
+    "You are a meticulous, high-recall exam-question extraction engine. Inspect all supplied views of the SAME PDF page: the full slide for context and focused overlapping crops for small printed text. Read each view closely; the crops are not separate pages.",
     "Extract EVERY actually visible exam/practice question: all numbered items (1., Q1, 1)), subparts (a), (b), (i), (ii), assertion/reason, matching, fill-in-the-blanks, true/false, numerical questions, passage-based questions, and questions that depend on a table, graph, circuit or diagram. A question does NOT need a question mark. Inspect both columns, the margins and the bottom of the page; never stop after the first question.",
     "Use selectable PDF text as a second source and reconcile it against the image; it can be incomplete, scrambled or missing entirely. Preserve visible wording, subpart labels, math symbols, superscripts/subscripts when readable, units, values, original language/script (including Hindi), and option order. Do not paraphrase, shorten, combine separate numbered questions, or skip a question because its wording is incomplete.",
     "Return only question statements, their subparts, options and necessary diagram descriptions. NEVER include answers, worked solutions, hints, explanations or answer-key text even when printed nearby. Ignore solution paragraphs. If part of a question is visibly present but unreadable, retain all legible text, mark the unreadable span [unclear], and require review instead of dropping the question or guessing.",
@@ -55,7 +58,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const parts: Array<{text:string} | {inlineData:{mimeType:string;data:string}}> = [{ text: prompt }];
-    if (imageData) parts.push({ inlineData: { mimeType: "image/jpeg", data: imageData } });
+    if (imageData) parts.push({ text: "FULL PAGE VIEW (context):" }, { inlineData: { mimeType: "image/jpeg", data: imageData } });
+    imageDataSegments.forEach((data, index) => parts.push({ text: `FOCUSED CROP ${index + 1} (same page; inspect small question text):` }, { inlineData: { mimeType: "image/jpeg", data } }));
     const result = await withGeminiApiKeyFailover((ai) => ai.models.generateContent({
       model: process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite",
       contents: [{ role: "user", parts }],
