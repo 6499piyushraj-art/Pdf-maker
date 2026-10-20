@@ -4,7 +4,7 @@ import { hasGeminiApiKey, withGeminiApiKeyFailover } from "../src/server/gemini"
 import { shouldFlagForReview } from "../src/lib/question-quality";
 
 type Input = { fileName?: unknown; pageNumber?: unknown; pageCount?: unknown; pageText?: unknown; imageData?: unknown };
-type RawQuestion = { questionText?: unknown; options?: unknown; answer?: unknown; explanation?: unknown; diagramDescription?: unknown; confidence?: unknown; reviewRequired?: unknown; reviewNotes?: unknown };
+type RawQuestion = { questionText?: unknown; options?: unknown; diagramDescription?: unknown; confidence?: unknown; reviewRequired?: unknown; reviewNotes?: unknown };
 
 function json(res: VercelResponse, status: number, body: unknown) {
   return res.status(status).setHeader("Cache-Control", "no-store").setHeader("X-Content-Type-Options", "nosniff").setHeader("Content-Type", "application/json; charset=utf-8").json(body);
@@ -40,21 +40,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (imageData && (imageData.length > 3600000 || !/^[A-Za-z0-9+/=]+$/.test(imageData))) return json(res, 413, { error: "Rendered page image is too large. Try a lower-resolution PDF." });
   if (!hasGeminiApiKey()) return json(res, 503, { error: "Configure GEMINI_API_KEY_1 through GEMINI_API_KEY_7 (or legacy GEMINI_API_KEY) on the server." });
 
-  const prompt = `You are a careful PDF question extraction system. Extract EVERY educational question visible on this single PDF page, in exact reading order. Do not invent text. Preserve mathematical notation, variables, units, superscripts/subscripts when possible, option labels and ordering. Include diagram-dependent questions and describe the visible diagram without guessing missing labels. Use "[unclear]" for illegible parts and flag those for human review. If the page contains no question, return an empty questions array. A question may continue from another page; only extract what is actually visible here and mention incomplete context in reviewNotes.
-Return JSON only in this shape:
-{"questions":[{"questionText":"...","options":["(A) ..."],"answer":"only if explicitly shown; otherwise empty","explanation":"only if explicitly shown; otherwise empty","diagramDescription":"empty if none","confidence":0.0,"reviewRequired":false,"reviewNotes":[]}]}
-Source filename: ${fileName}
-Page: ${pageNumber} of ${pageCount}
-Extracted page text (may be incomplete; image is authoritative for layout):
-${pageText || "[No selectable text; inspect the page image.]"}`;
+  const prompt = [
+    "You are a high-coverage, question-only extractor. Inspect this single PDF page and extract EVERY visible exam/practice question in reading order, including sub-parts (a), (b), (i), (ii), assertion/reason, matching, fill-in-the-blanks, graph/table questions and every MCQ option.",
+    "Never return answers, worked solutions, hints, explanations, or reasoning, even if printed somewhere on the page. Ignore answer keys and solution paragraphs. Preserve original wording, language, symbols, equations, numbers, units and option order.",
+    "If a diagram, geometry figure, graph or table is required, describe the visible labels, shapes, axes, arrows, markings and relationships in diagramDescription. Do not guess unreadable labels. Use [unclear] and set reviewRequired=true for uncertain text or figures. For questions continued from another page, extract only the visible part and flag for review. Return an empty array if no question is visible.",
+    "Return JSON only: {\"questions\":[{\"questionText\":\"...\",\"options\":[\"(A) ...\"],\"diagramDescription\":\"\",\"confidence\":0.0,\"reviewRequired\":false,\"reviewNotes\":[]}]}",
+    "Source filename: " + fileName,
+    "Page: " + pageNumber + " of " + pageCount,
+    "Selectable PDF text (may be incomplete; the attached page image must also be inspected):",
+    pageText || "[No selectable text; inspect the attached page image.]"
+  ].join("\n");
 
   try {
     const parts: Array<{text:string} | {inlineData:{mimeType:string;data:string}}> = [{ text: prompt }];
     if (imageData) parts.push({ inlineData: { mimeType: "image/jpeg", data: imageData } });
     const result = await withGeminiApiKeyFailover((ai) => ai.models.generateContent({
-      model: process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash",
+      model: process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite",
       contents: [{ role: "user", parts }],
-      config: { responseMimeType: "application/json", temperature: 0.1 }
+      config: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: 8192 }
     }));
     const parsed = parseModelJson(result.text || "");
     if (!parsed || !Array.isArray(parsed.questions)) return json(res, 502, { error: "Gemini response did not contain a questions array." });
@@ -66,7 +69,7 @@ ${pageText || "[No selectable text; inspect the page image.]"}`;
       const reviewNotes = Array.isArray(q?.reviewNotes) ? q.reviewNotes.slice(0, 8).map(n => cleanString(n, 500)).filter(Boolean) : [];
       const reviewRequired = shouldFlagForReview({ explicitReview: q?.reviewRequired, confidence, questionText, options, diagramDescription });
       if (!questionText) reviewNotes.push("Question text is missing or unreadable.");
-      return { questionText: questionText || "[unclear question text]", options, answer: cleanString(q?.answer, 3000), explanation: cleanString(q?.explanation, 5000), diagramDescription, confidence, reviewRequired: reviewRequired || !questionText, reviewNotes };
+      return { questionText: questionText || "[unclear question text]", options, diagramDescription, confidence, reviewRequired: reviewRequired || !questionText, reviewNotes };
     }).filter(q => q.questionText);
     return json(res, 200, { fileName, pageNumber, questions, warning: questions.length === 40 ? "Question count was capped at 40 for one page." : undefined });
   } catch (error) {
