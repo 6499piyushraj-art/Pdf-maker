@@ -52,12 +52,12 @@ test("pages with zero detected questions explicitly ask the user to verify them 
   assert.match(main, /Re-scan page/);
 });
 
-test("zero-question results trigger automatic multi-pass crop recovery", () => {
-  assert.match(main, /async function extractPageWithFocusedFallback/);
-  assert.match(main, /initial\.questions\.length > 0/);
+test("image-only pages with few detected questions retry focused crops", () => {
+  assert.match(main, /const imageOnlyPage = input\\.pageText\\.trim\\(\\)\\.length < 80/);
+  assert.match(main, /initialQuestions\\.length > 2\\) return initial/);
+  assert.match(main, /collectUnique\\(candidateSets\\)\\.length <= 2/);
   assert.match(main, /focusedOnly: true/);
-  assert.match(main, /Passes 3–4: ask about each crop separately/);
-  assert.match(main, /Recovered by focused-only fallback/);
+  assert.match(main, /focusedFallbackUsed: true/);
 });
 
 test("focused-only fallback labels crops honestly and accepts crop-only image payloads", () => {
@@ -66,12 +66,11 @@ test("focused-only fallback labels crops honestly and accepts crop-only image pa
   assert.match(extract, /!imageData && imageDataSegments.length === 0/);
 });
 
-test("zero-result recovery independently retries each focused crop and merges candidates", () => {
-  assert.match(main, /Pass 2: read overlapping upper\/lower crops/);
-  assert.match(main, /Passes 3–4: ask about each crop separately/);
-  assert.match(main, /for \(const \[index, cropData\] of input\.imageDataSegments\.entries\(\)\)/);
+test("partial image-only results merge questions from individual crops", () => {
+  assert.match(main, /collectUnique\\(candidateSets\\)/);
+  assert.match(main, /for \\(const cropData of input\\.imageDataSegments\\)/);
   assert.match(main, /focusedFallbackPasses/);
-  assert.match(extract, /Question \[JEE Mains-2023\]/);
+  assert.match(extract, /Question \\[JEE Mains-2023\\]/);
   assert.match(extract, /ignoring handwritten working, ticks, circles and answers/);
 });
 

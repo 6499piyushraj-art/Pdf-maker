@@ -15,6 +15,8 @@ const tsconfig = JSON.parse(await readFile(new URL("../tsconfig.json", import.me
 const npmrc = await readFile(new URL("../.npmrc", import.meta.url), "utf8");
 const geminiHelper = await readFile(new URL("../src/server/gemini.ts", import.meta.url), "utf8");
 const envExample = await readFile(new URL("../.env.example", import.meta.url), "utf8");
+const extract = await readFile(new URL("../api/extract.ts", import.meta.url), "utf8");
+const audit = await readFile(new URL("../api/audit.ts", import.meta.url), "utf8");
 
 test("index has visible startup diagnostics instead of an empty app root", () => {
   assert.match(index, /id="app"[\s\S]*startup-fallback/);
