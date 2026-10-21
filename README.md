@@ -11,7 +11,7 @@ PaperPilot is a password-protected workspace for extracting questions from PDF s
    - `GEMINI_API_KEY`: optional legacy fallback, attempted after the numbered slots.
    - `APP_PASSWORD`: a unique password of at least 12 characters.
    - `SESSION_SECRET`: a separate random secret of at least 32 characters.
-   - `GEMINI_MODEL`: optional; defaults to `gemini-3.5-flash-lite`.
+   - `GEMINI_MODEL`: optional; defaults to `gemini-3.8-flash`.
    - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`: OAuth client credentials from Google Cloud Console.
    - `GOOGLE_REDIRECT_URI`: `https://paperpilot-pdf-maker.onrender.com/api/google?action=callback`; register it exactly in the OAuth client.
    Save changes and redeploy. The workspace needs login secrets and at least one Gemini key; Google Docs needs the OAuth settings too.
@@ -36,6 +36,10 @@ GitHub Pages is static hosting and cannot run the `/api` functions. The reposito
 - Supports searching and reviewing extracted question text, options and figure notes; answer/solution/explanation fields are excluded.
 - Creates a native Google Doc after the user authorizes Google sign-in. Export is blocked until failed pages have been retried.
 - Keeps the Gemini key on the server; the shared workspace uses a signed HttpOnly session cookie and same-origin checks.
+
+## Download questions as PDF
+
+Use **Download PDF** in the question-bank panel to open a print-ready PDF view without Google sign-in. Each extracted question starts on a separate A4 page, including its options and any required diagram notes. In the browser print dialog, choose **Save as PDF**. The export excludes answers and worked solutions, and it is disabled while any page has failed so the file is not knowingly incomplete.
 
 ## Local setup
 

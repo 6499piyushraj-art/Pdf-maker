@@ -157,7 +157,7 @@ function render() {
   <label class="dropzone" for="pdf-input"><input id="pdf-input" type="file" accept="application/pdf,.pdf" multiple ${state.busy?"disabled":""}><span class="upload-icon">↑</span><strong>Choose PDF files</strong><span>or use your device's file picker</span><small>PDF only · maximum 20 files · 20 MB per file</small></label>
   ${state.files.length ? `<div class="file-list">${state.files.map((f,i)=>`<div class="file-row"><span class="file-icon">PDF</span><span class="file-name">${escapeHtml(f.name)}<small>${(f.size/1048576).toFixed(1)} MB</small></span><button class="icon-button remove-file" data-index="${i}" aria-label="Remove file" ${state.busy?"disabled":""}>×</button></div>`).join("")}</div><button id="process" class="primary process-button" ${state.busy?"disabled":""}>${state.busy?'<span class="spinner"></span> Processing pages…':'Extract questions <span>→</span>'}</button>` : ""}
   <p class="message">${escapeHtml(state.message)}</p></section>
-  <section class="panel results-panel"><div class="section-heading results-heading"><div><p class="eyebrow">STEP 02</p><h2>Your question bank</h2><p class="muted">Only question text, options and necessary figure notes are included. Answers, solutions and explanations are excluded.</p></div><div class="google-actions">${renderGoogleDocsAction()}</div></div>
+  <section class="panel results-panel"><div class="section-heading results-heading"><div><p class="eyebrow">STEP 02</p><h2>Your question bank</h2><p class="muted">Only question text, options and necessary figure notes are included. Download PDF works without Google sign-in, with each question on a separate page.</p></div><div class="google-actions">${renderPdfExportAction()}${renderGoogleDocsAction()}</div></div>
   <div class="results-tools"><div class="tabs"><button data-tab="questions" class="${state.activeTab==="questions"?"selected":""}">Questions <span>${state.questions.length}</span></button><button data-tab="pages" class="${state.activeTab==="pages"?"selected":""}">Page log <span>${state.pages.length}</span></button></div>${state.activeTab==="questions"?'<input id="search" class="search" placeholder="Search questions…" value="'+escapeHtml(state.search)+'">':""}</div>
   ${state.activeTab==="questions" ? (visible.length ? visible.map((q,i)=>`<article class="question-card"><div class="question-top"><span class="question-number">Q${state.questions.indexOf(q)+1}</span><span class="source">${escapeHtml(q.fileName)} · page ${q.pageNumber}</span>${q.reviewRequired?'<span class="review-badge">Review</span>':'<span class="ok-badge">Checked</span>'}</div>
     <label class="field-label">Question</label><textarea data-edit="questionText" data-id="${q.id}" rows="2">${escapeHtml(q.questionText)}</textarea>
@@ -232,6 +232,7 @@ app.addEventListener("click", async (event) => {
   }
   if (target.dataset.tab) { state.activeTab = target.dataset.tab as AppState["activeTab"]; render(); return; }
   if (target.id === "process") { await processFiles(); return; }
+  if (target.id === "export-pdf") { downloadQuestionPdf(); return; }
   if (target.id === "export-google") { await exportGoogleDoc(); return; }
   if (target.id === "disconnect-google") { await disconnectGoogleDocs(); return; }
   if (target.classList.contains("retry")) {
@@ -371,6 +372,13 @@ function renderGoogleDocsAction(): string {
   const label = state.pages.some(page => page.status === "failed") ? "Retry failed pages first" : "Create Google Doc ↗";
   return '<span class="google-connected"><i></i> Google connected</span><button id="export-google" class="secondary" ' + (blocked ? "disabled" : "") + '>' + label + '</button><button id="disconnect-google" class="quiet" ' + (state.busy ? "disabled" : "") + '>Disconnect</button>';
 }
+function renderPdfExportAction(): string {
+  const hasFailedPages = state.pages.some(page => page.status === "failed");
+  const blocked = !state.questions.length || state.busy || hasFailedPages;
+  const label = hasFailedPages ? "Retry failed pages first" : "Download PDF ↓";
+  return '<button id="export-pdf" class="secondary" ' + (blocked ? "disabled" : "") + ' title="One question per page; choose Save as PDF in the print dialog.">' + label + '</button>';
+}
+
 function questionKey(value: string): string {
   return value.toLocaleLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
 }
@@ -391,6 +399,53 @@ function mergeRecoveredQuestions(questions: Question[], rawMissing: unknown, fil
     });
   }
 }
+function downloadQuestionPdf() {
+  if (!state.questions.length || state.busy) return;
+  if (state.pages.some(page => page.status === "failed")) {
+    state.message = "Retry every failed page before exporting, so the PDF is not knowingly incomplete.";
+    render();
+    return;
+  }
+
+  // Open synchronously from the user's click so mobile browsers do not block the print view.
+  const printWindow = window.open("about:blank", "_blank");
+  if (!printWindow) {
+    state.message = "The PDF print window was blocked. Allow pop-ups for this site and try again.";
+    render();
+    return;
+  }
+
+  const pages = state.questions.map((q, index) => {
+    const questionText = escapeHtml(q.questionText).replace(/\r?\n/g, "<br>");
+    const options = q.options.map(option =>
+      '<div class="option">' + escapeHtml(option).replace(/\r?\n/g, "<br>") + "</div>"
+    ).join("");
+    const diagram = q.diagramDescription
+      ? '<section class="diagram"><h2>Diagram / figure notes</h2><p>' + escapeHtml(q.diagramDescription).replace(/\r?\n/g, "<br>") + "</p></section>"
+      : "";
+    const review = q.reviewRequired
+      ? '<p class="review-note">Please verify this question against the original PDF.</p>'
+      : "";
+    return '<section class="question-page"><header><span>PaperPilot AI · Question Bank</span><span>Question ' + (index + 1) + " of " + state.questions.length + '</span></header><h1>Question ' + (index + 1) + '</h1><p class="source">Source: ' + escapeHtml(q.fileName) + " · original PDF page " + q.pageNumber + '</p><div class="stem">' + questionText + '</div>' + (options ? '<section class="options"><h2>Options</h2>' + options + '</section>' : "") + diagram + review + '<footer>Extracted question only · answers and worked solutions are not included</footer></section>';
+  }).join("");
+
+  const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PaperPilot-Question-Bank</title><style>' +
+    '@page{size:A4;margin:17mm 16mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#172033;font-size:12pt;line-height:1.55;margin:0}.question-page{position:relative;break-after:page;page-break-after:always;break-inside:auto;min-height:250mm;padding-bottom:15mm}.question-page:last-child{break-after:auto;page-break-after:auto}header{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #d8dfeb;padding-bottom:9px;color:#536179;font-size:9pt}h1{font-size:21pt;line-height:1.2;margin:24px 0 8px;color:#111827}.source{font-size:9pt;color:#5b6578;margin:0 0 22px;overflow-wrap:anywhere}.stem{font-size:12pt;white-space:normal;overflow-wrap:anywhere}.options{margin-top:24px}.options h2,.diagram h2{font-size:11pt;margin:0 0 9px}.option{margin:8px 0 8px 12px;white-space:normal;overflow-wrap:anywhere}.diagram{margin-top:22px;padding:12px;border:1px solid #d9e0ea;border-radius:8px;break-inside:avoid}.diagram p{margin:0;overflow-wrap:anywhere}.review-note{margin-top:22px;padding:8px 10px;border-left:3px solid #b7791f;color:#714d11;font-size:9pt}.question-page footer{position:absolute;bottom:0;left:0;right:0;border-top:1px solid #e1e5ec;padding-top:7px;color:#788195;font-size:8pt}@media screen{body{background:#eef1f7;padding:18px}.question-page{background:white;max-width:800px;margin:0 auto 18px;padding:28px;box-shadow:0 4px 24px #17203318;min-height:980px}.question-page footer{left:28px;right:28px;bottom:28px}}@media print{.question-page{min-height:0}.question-page footer{position:fixed}}' +
+    '</style></head><body><main>' + pages + '</main></body></html>';
+
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+  state.message = "PDF print view opened. In the print window, choose Save as PDF.";
+  render();
+  window.setTimeout(() => {
+    if (!printWindow.closed) {
+      printWindow.focus();
+      printWindow.print();
+    }
+  }, 450);
+}
+
 async function exportGoogleDoc() {
   if (!state.questions.length || state.busy) return;
   if (state.pages.some(page => page.status === "failed")) {

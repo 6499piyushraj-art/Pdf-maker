@@ -65,7 +65,9 @@ test("docs clearly explain hosting requirements and Render deployment", () => {
   assert.match(readme, /GEMINI_API_KEY_1/);
   assert.match(readme, /GEMINI_API_KEY_7/);
   assert.match(envExample, /GEMINI_API_KEY_7=/);
-  assert.match(envExample, /GEMINI_MODEL=gemini-3\.5-flash-lite/);
+  assert.match(envExample, /GEMINI_MODEL=gemini-3\.8-flash/);
+  assert.match(extract, /gemini-3\.8-flash/);
+  assert.match(audit, /gemini-3\.8-flash/);
   assert.match(envExample, /GOOGLE_CLIENT_ID=/);
   assert.match(envExample, /GOOGLE_CLIENT_SECRET=/);
   assert.match(geminiHelper, /for \(let slot = 1; slot <= NUMBERED_KEY_SLOTS; slot \+= 1\)/);

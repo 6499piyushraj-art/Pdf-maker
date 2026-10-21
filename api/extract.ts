@@ -65,7 +65,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (imageData) parts.push({ text: focusedOnly ? "FOCUSED CROP 1 (same page; this is not a full-page image):" : "FULL PAGE VIEW (context):" }, { inlineData: { mimeType: "image/jpeg", data: imageData } });
     imageDataSegments.forEach((data, index) => parts.push({ text: `FOCUSED CROP ${index + (focusedOnly ? 2 : 1)} (same page; inspect small question text):` }, { inlineData: { mimeType: "image/jpeg", data } }));
     const result = await withGeminiApiKeyFailover((ai) => ai.models.generateContent({
-      model: process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite",
+      model: process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash",
       contents: [{ role: "user", parts }],
       config: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: 8192 }
     }));

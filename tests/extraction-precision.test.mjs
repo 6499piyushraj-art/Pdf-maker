@@ -74,3 +74,15 @@ test("zero-result recovery independently retries each focused crop and merges ca
   assert.match(extract, /Question \[JEE Mains-2023\]/);
   assert.match(extract, /ignoring handwritten working, ticks, circles and answers/);
 });
+
+test("question bank PDF export works without Google Docs and starts each question on its own page", () => {
+  assert.match(main, /id="export-pdf"/);
+  assert.match(main, /function downloadQuestionPdf\(\)/);
+  assert.match(main, /printWindow\.print\(\)/);
+  assert.match(main, /break-after:page/);
+  assert.match(main, /choose Save as PDF in the print dialog/i);
+  assert.match(main, /q\.questionText/);
+  assert.match(main, /q\.options\.map/);
+  assert.match(main, /q\.diagramDescription/);
+  assert.match(main, /answers and worked solutions are not included/);
+});
