@@ -53,11 +53,11 @@ test("pages with zero detected questions explicitly ask the user to verify them 
 });
 
 test("image-only pages with few detected questions retry focused crops", () => {
-  assert.match(main, /const imageOnlyPage = input\\.pageText\\.trim\\(\\)\\.length < 80/);
-  assert.match(main, /initialQuestions\\.length > 2\\) return initial/);
-  assert.match(main, /collectUnique\\(candidateSets\\)\\.length <= 2/);
-  assert.match(main, /focusedOnly: true/);
-  assert.match(main, /focusedFallbackUsed: true/);
+  assert.ok(main.includes("const imageOnlyPage = input.pageText.trim().length < 80;"));
+  assert.ok(main.includes("initialQuestions.length > 2) return initial;"));
+  assert.ok(main.includes("collectUnique(candidateSets).length <= 2"));
+  assert.ok(main.includes("focusedOnly: true"));
+  assert.ok(main.includes("focusedFallbackUsed: true"));
 });
 
 test("focused-only fallback labels crops honestly and accepts crop-only image payloads", () => {
@@ -67,11 +67,11 @@ test("focused-only fallback labels crops honestly and accepts crop-only image pa
 });
 
 test("partial image-only results merge questions from individual crops", () => {
-  assert.match(main, /collectUnique\\(candidateSets\\)/);
-  assert.match(main, /for \\(const cropData of input\\.imageDataSegments\\)/);
-  assert.match(main, /focusedFallbackPasses/);
-  assert.match(extract, /Question \\[JEE Mains-2023\\]/);
-  assert.match(extract, /ignoring handwritten working, ticks, circles and answers/);
+  assert.ok(main.includes("collectUnique(candidateSets)"));
+  assert.ok(main.includes("for (const cropData of input.imageDataSegments)"));
+  assert.ok(main.includes("focusedFallbackPasses"));
+  assert.ok(extract.includes("Question [JEE Mains-2023]"));
+  assert.ok(extract.includes("ignoring handwritten working, ticks, circles and answers"));
 });
 
 test("question bank PDF export works without Google Docs and starts each question on its own page", () => {
