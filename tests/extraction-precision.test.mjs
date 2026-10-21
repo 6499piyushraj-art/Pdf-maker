@@ -86,3 +86,16 @@ test("question bank PDF export works without Google Docs and starts each questio
   assert.match(main, /q\.diagramDescription/);
   assert.match(main, /answers and worked solutions are not included/);
 });
+
+test("image-only pages with partial results receive focused retries instead of stopping at one question", () => {
+  assert.match(main, /const imageOnlyPage = input\.pageText\.trim\(\)\.length < 80/);
+  assert.match(main, /initialQuestions\.length > 2\) return initial/);
+  assert.match(main, /collectUnique\(candidateSets\)\.length <= 2/);
+  assert.match(main, /for \(const cropData of input\.imageDataSegments\)/);
+  assert.match(extract, /pixels are the source of truth, not an empty page/i);
+  assert.match(audit, /do not recover only the easiest-to-read one/i);
+});
+
+test("question deduplication preserves Hindi and other non-Latin scripts", () => {
+  assert.match(main, /replace\(\/\[\^\\p\{L\}\\p\{N\}\]\+\/gu, " "\)/);
+});

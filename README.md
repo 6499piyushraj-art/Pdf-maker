@@ -29,7 +29,7 @@ GitHub Pages is static hosting and cannot run the `/api` functions. The reposito
 ## Features
 
 - Select up to 20 PDF files, 20 MB per file. Pages are processed sequentially to preserve source order.
-- PDF.js extracts selectable text and renders each page locally so scans, equations, options and diagrams can be inspected by Gemini. A second image-and-text completeness pass checks for omitted questions/options and can recover missed questions; uncertain maths and diagram details are flagged.
+- PDF.js extracts selectable text and renders each page locally so scans, equations, options and diagrams can be inspected by Gemini. Image-only pages with very few detected questions receive focused-crop retries, merging new findings with first-pass results. A second image-and-text completeness pass checks for omitted questions/options and can recover missed questions; uncertain maths and diagram details are flagged.
 - Keeps question text, options, visible answers/explanations, diagram descriptions, confidence, source filename and page number.
 - Flags low-confidence or unclear content for manual review.
 - Audits extracted results, preserves successful pages when one page fails, and records failures for retry.

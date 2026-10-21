@@ -52,10 +52,30 @@ async function extractPageWithFocusedFallback(input: {
   imageDataSegments: string[];
 }): Promise<any> {
   const initial = await jsonPost("/api/extract", { ...input });
-  if (!Array.isArray(initial?.questions) || initial.questions.length > 0 || input.imageDataSegments.length < 2) return initial;
+  const initialQuestions: any[] = Array.isArray(initial?.questions) ? initial.questions : [];
+  const imageOnlyPage = input.pageText.trim().length < 80;
 
-  // Pass 2: read overlapping upper/lower crops without the full-page view.
-  const candidateSets: any[][] = [];
+  // Image-only pages returning 0-2 questions are likely partial reads.
+  // Retry only these pages to avoid extra calls for normal text PDFs.
+  if (!imageOnlyPage || input.imageDataSegments.length < 2 || initialQuestions.length > 2) return initial;
+
+  const candidateSets: any[][] = [initialQuestions];
+  const collectUnique = (sets: any[][]): any[] => {
+    const seen = new Set<string>();
+    const merged: any[] = [];
+    for (const set of sets) {
+      for (const question of set) {
+        const text = String(question?.questionText || "").trim();
+        const key = questionKey(text);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        merged.push(question);
+      }
+    }
+    return merged;
+  };
+
+  // Pass 2: reread overlapping crops without the full-slide distraction.
   try {
     const focused = await jsonPost("/api/extract", {
       fileName: input.fileName,
@@ -68,13 +88,13 @@ async function extractPageWithFocusedFallback(input: {
     });
     if (Array.isArray(focused?.questions) && focused.questions.length) candidateSets.push(focused.questions);
   } catch {
-    // Continue to the independent crop attempts below.
+    // Independent crop attempts below still run if this combined pass fails.
   }
 
-  // Passes 3–4: ask about each crop separately. Some vision calls miss small text
-  // when the complete slide and handwritten work are shown together.
-  if (!candidateSets.some(set => set.length)) {
-    for (const [index, cropData] of input.imageDataSegments.entries()) {
+  // If only 0-2 distinct questions were found, read upper/lower crops separately.
+  // This catches cases where one clear question hides another on the same slide.
+  if (collectUnique(candidateSets).length <= 2) {
+    for (const cropData of input.imageDataSegments) {
       try {
         const cropResult = await jsonPost("/api/extract", {
           fileName: input.fileName,
@@ -87,28 +107,21 @@ async function extractPageWithFocusedFallback(input: {
         });
         if (Array.isArray(cropResult?.questions) && cropResult.questions.length) candidateSets.push(cropResult.questions);
       } catch {
-        // A failed crop doesn't prevent the other crop from being inspected.
+        // One failed crop should not stop the other crop from being checked.
       }
     }
   }
 
-  if (!candidateSets.length) return { ...initial, focusedFallbackAttempted: true };
-
-  const seen = new Set<string>();
-  const questions: any[] = [];
-  for (const set of candidateSets) {
-    for (const question of set) {
-      const key = String(question?.questionText || "").toLowerCase().replace(/\s+/g, " ").trim();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      questions.push(question);
-    }
+  const questions = collectUnique(candidateSets);
+  if (questions.length <= initialQuestions.length) {
+    return { ...initial, questions: initialQuestions, focusedFallbackAttempted: true };
   }
   return {
     ...initial,
     questions,
     focusedFallbackUsed: true,
-    focusedFallbackPasses: candidateSets.length
+    focusedFallbackAttempted: true,
+    focusedFallbackPasses: candidateSets.length - 1
   };
 }
 
@@ -380,7 +393,7 @@ function renderPdfExportAction(): string {
 }
 
 function questionKey(value: string): string {
-  return value.toLocaleLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+  return value.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
 }
 function mergeRecoveredQuestions(questions: Question[], rawMissing: unknown, fileName: string, pageNumber: number): void {
   if (!Array.isArray(rawMissing)) return;
