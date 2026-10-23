@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 const main = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
 const extract = await readFile(new URL("../api/extract.ts", import.meta.url), "utf8");
 const audit = await readFile(new URL("../api/audit.ts", import.meta.url), "utf8");
+const dedupe = await import("../src/lib/question-dedupe.ts");
 
 test("PDF pages are sent to Gemini at higher resolution and quality", () => {
   assert.equal((main.match(/Math\.min\(2, 2300 \/ baseViewport\.width\)/g) || []).length, 2);
@@ -121,11 +122,10 @@ test("Gemini 3.8 Flash uses high thinking and avoids unsupported sampling settin
 
 
 test("semantic deduplication merges paraphrased model candidates and rejects weak placeholders", () => {
-  assert.match(main, /function areDuplicateCandidates/);
-  assert.match(main, /shorterCoverage >= 0\.8/);
-  assert.match(main, /questionKey\(aText\) === questionKey\(bText\)/);
-  assert.match(main, /function isPlausibleQuestionText/);
-  assert.match(main, /if \(!isPlausibleQuestionText\(text\)\) return/);
+  assert.equal(typeof dedupe.areDuplicateCandidates, "function");
+  assert.equal(typeof dedupe.deduplicateCandidates, "function");
+  assert.equal(typeof dedupe.isPlausibleQuestionText, "function");
+  assert.match(main, /deduplicateCandidates\(Array\.isArray\(result\.questions\)/);
   assert.match(main, /Near-duplicate AI candidates were merged/);
   assert.match(extract, /NO-INVENTION RULE/);
   assert.match(extract, /DUPLICATE RULE/);
@@ -149,6 +149,47 @@ test("the original source page is preserved for review and included in question-
 test("given-only pseudo-questions and exact unclear placeholders are excluded instead of exported as questions", () => {
   assert.match(extract, /const givenOnly/);
   assert.match(extract, /!givenOnly/);
-  assert.match(main, /return questionTokens\(text\)\.length >= 2 \|\| hasTask/);
+  assert.equal(dedupe.isPlausibleQuestionText("Given: x=4y^2, X=a, uniform density sigma."), false);
   assert.match(audit, /unclear/);
+});
+
+
+test("dedupe implementation merges paraphrased questions while retaining richer options", () => {
+  const first = {
+    questionText: "Find the centre of mass of a uniform lamina bounded by x=4y^2 and x=a",
+    options: [],
+    diagramDescription: "",
+    confidence: 0.94,
+    reviewRequired: false,
+    reviewNotes: []
+  };
+  const second = {
+    questionText: "Determine the centre of mass of the uniform lamina bounded by x = 4 y^2 and x = a",
+    options: ["(A) x = a/2", "(B) x = 2a/3"],
+    diagramDescription: "Parabolic lamina with vertical boundary x=a.",
+    confidence: 0.8,
+    reviewRequired: false,
+    reviewNotes: []
+  };
+  assert.equal(dedupe.areDuplicateCandidates(first, second), true);
+  const result = dedupe.deduplicateCandidates([first, second]);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].options.length, 2);
+  assert.match(result[0].diagramDescription, /Parabolic lamina/);
+  assert.equal(result[0].reviewRequired, true);
+  assert.ok(result[0].reviewNotes.some(note => /merged/i.test(note)));
+});
+
+test("different explicit question numbers are not merged just because stems are similar", () => {
+  assert.equal(dedupe.areDuplicateCandidates(
+    { questionText: "Question 1: Find the value of x + 2" },
+    { questionText: "Question 2: Find the value of x + 2" }
+  ), false);
+});
+
+test("given-only notes and exact unclear placeholders are rejected but short actual questions survive", () => {
+  assert.equal(dedupe.isPlausibleQuestionText("Given: x = 4y^2, X = a, uniform density sigma."), false);
+  assert.equal(dedupe.isPlausibleQuestionText("[unclear]"), false);
+  assert.equal(dedupe.isPlausibleQuestionText("Why?"), true);
+  assert.equal(dedupe.isPlausibleQuestionText("Calculate x when x+2=5"), true);
 });

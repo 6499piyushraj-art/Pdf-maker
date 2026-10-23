@@ -1,6 +1,7 @@
 import * as pdfjsLib from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import "./style.css";
+import { addCandidateDeduplicated, deduplicateCandidates, questionKey } from "./lib/question-dedupe";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -415,77 +416,6 @@ function renderPdfExportAction(): string {
   return '<button id="export-pdf" class="secondary" ' + (blocked ? "disabled" : "") + ' title="One question per page; choose Save as PDF in the print dialog.">' + label + '</button>';
 }
 
-function questionKey(value: string): string {
-  return value.normalize("NFKC").toLocaleLowerCase()
-    .replace(/\bcent(?:er|re)\s+of\s+mass\b/g, " centerofmass ")
-    .replace(/\bcom\b/g, " centerofmass ")
-    .replace(/\bcentre\b/g, "center")
-    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
-}
-const QUESTION_STOP_WORDS = new Set(["a","an","the","and","or","of","for","to","in","on","at","as","by","with","from","is","are","be","being","shown","figure","given","this","that","these","those","it","its","their","then","when","where","which","what","how","do","does","has","have","will","would","can","could","should","into","onto","than","over","under","there","each","all"]);
-function questionTokens(value: string): string[] {
-  return [...new Set(questionKey(value.replace(/\[unclear\]/gi, " ")).split(/\s+/).filter(token => token && !QUESTION_STOP_WORDS.has(token)))];
-}
-function isPlausibleQuestionText(value: string): boolean {
-  const text = value.trim().replace(/^\s*question\s*(?:no\.?\s*)?\d+\s*[:.\-]?/i, "").trim();
-  if (!text || /^\[?unclear\]?$/i.test(text)) return false;
-  const hasTask = /\b(find|calculate|determine|compute|evaluate|solve|prove|show|obtain|select|choose|identify|state|derive|lies|would|which|what|how|is|are|equals|equal to|remainder|coefficient)\b/i.test(text);
-  if (/^\s*(?:given|solution|working|therefore|hence|let us|we know|diagram notes?)\b/i.test(text) && !hasTask) return false;
-  return questionTokens(text).length >= 2 || hasTask;
-}
-function explicitQuestionNumber(value: string): string | null {
-  const match = value.match(/\b(?:question|ques\.?|q)\s*#?\s*(\d{1,3})\b/i);
-  return match?.[1] || null;
-}
-function areDuplicateCandidates(a: any, b: any): boolean {
-  const aText = String(a?.questionText || "").trim();
-  const bText = String(b?.questionText || "").trim();
-  const aNumber = explicitQuestionNumber(aText);
-  const bNumber = explicitQuestionNumber(bText);
-  if (aNumber && bNumber && aNumber !== bNumber) return false;
-  if (questionKey(aText) === questionKey(bText)) return true;
-  const aTokens = questionTokens(aText);
-  const bTokens = questionTokens(bText);
-  if (!aTokens.length || !bTokens.length) return false;
-  const aSet = new Set(aTokens);
-  const bSet = new Set(bTokens);
-  const overlap = [...aSet].filter(token => bSet.has(token)).length;
-  const shorterCoverage = overlap / Math.min(aSet.size, bSet.size);
-  return (overlap >= 4 && shorterCoverage >= 0.8) || (overlap >= 3 && shorterCoverage >= 0.92 && Math.min(aSet.size, bSet.size) <= 5);
-}
-function questionQualityScore(question: any): number {
-  const text = String(question?.questionText || "").trim();
-  let score = new Set(questionTokens(text)).size;
-  score += Array.isArray(question?.options) ? Math.min(question.options.length, 6) * 1.5 : 0;
-  if (/\b(find|calculate|determine|compute|evaluate|solve|prove|show|obtain|which|what|how)\b/i.test(text)) score += 2;
-  score -= (text.match(/\[unclear\]/gi) || []).length * 4;
-  if (/\brac\s*\{/i.test(text)) score -= 1;
-  if (/^\s*(?:given|solution|working|therefore|hence)\b/i.test(text) && !isPlausibleQuestionText(text)) score -= 20;
-  return score;
-}
-function addCandidateDeduplicated(list: any[], candidate: any): void {
-  const text = String(candidate?.questionText || "").trim();
-  if (!isPlausibleQuestionText(text)) return;
-  const index = list.findIndex(existing => areDuplicateCandidates(existing, candidate));
-  if (index < 0) { list.push(candidate); return; }
-  const existing = list[index];
-  const existingText = String(existing?.questionText || "").trim();
-  const candidateText = text;
-  const notes = [...(Array.isArray(existing?.reviewNotes) ? existing.reviewNotes : []), ...(Array.isArray(candidate?.reviewNotes) ? candidate.reviewNotes : [])];
-  const options = (Array.isArray(candidate?.options) && candidate.options.length > (Array.isArray(existing?.options) ? existing.options.length : 0)) ? candidate.options : existing.options;
-  const diagram = String(candidate?.diagramDescription || "").length > String(existing?.diagramDescription || "").length ? candidate.diagramDescription : existing.diagramDescription;
-  if (questionQualityScore(candidate) > questionQualityScore(existing)) existing.questionText = candidateText;
-  if (Array.isArray(options)) existing.options = options;
-  if (diagram) existing.diagramDescription = diagram;
-  existing.reviewRequired = Boolean(existing?.reviewRequired || candidate?.reviewRequired || questionKey(existingText) !== questionKey(candidateText));
-  existing.confidence = Math.min(typeof existing?.confidence === "number" ? existing.confidence : 0.5, typeof candidate?.confidence === "number" ? candidate.confidence : 0.5);
-  existing.reviewNotes = [...new Set([...notes.map(String), "Near-duplicate AI candidates were merged; verify the retained wording against the original PDF page."])];
-}
-function deduplicateCandidates(values: any[]): any[] {
-  const result: any[] = [];
-  for (const candidate of values) addCandidateDeduplicated(result, candidate);
-  return result;
-}
 function renderSourceReference(fileName: string, pageNumber: number): string {
   const preview = state.pages.find(page => page.fileName === fileName && page.pageNumber === pageNumber)?.sourcePreview;
   if (!preview) return "";
