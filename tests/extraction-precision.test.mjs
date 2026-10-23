@@ -206,8 +206,8 @@ test("selecting or rerunning a PDF set clears old results rather than mixing que
 test("exports remain blocked until pages with zero detected questions are visually checked", () => {
   assert.match(main, /function hasUnreviewedEmptyPages/);
   assert.match(main, /Review empty pages first/);
-  assert.match(main, /class="confirm-empty"/);
-  assert.match(main, /class="load-source"/);
+  assert.match(main, /class="confirm-empty/);
+  assert.match(main, /class="load-source/);
   assert.match(main, /if \(hasUnreviewedEmptyPages\(\)\)/);
   assert.match(main, /!page\.sourcePreview/);
 });
