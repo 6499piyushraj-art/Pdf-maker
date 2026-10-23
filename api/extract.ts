@@ -3,9 +3,10 @@ import { ThinkingLevel } from "@google/genai";
 import { protectedApiError } from "../src/server/auth";
 import { hasGeminiApiKey, withGeminiApiKeyFailover } from "../src/server/gemini";
 import { shouldFlagForReview } from "../src/lib/question-quality";
+import { normalizeDiagramRegion } from "../src/lib/diagram-region";
 
 type Input = { fileName?: unknown; pageNumber?: unknown; pageCount?: unknown; pageText?: unknown; imageData?: unknown; imageDataSegments?: unknown; focusedOnly?: unknown };
-type RawQuestion = { questionText?: unknown; options?: unknown; diagramDescription?: unknown; confidence?: unknown; reviewRequired?: unknown; reviewNotes?: unknown };
+type RawQuestion = { questionText?: unknown; options?: unknown; diagramDescription?: unknown; diagramRegion?: unknown; confidence?: unknown; reviewRequired?: unknown; reviewNotes?: unknown };
 
 function json(res: VercelResponse, status: number, body: unknown) {
   return res.status(status).setHeader("Cache-Control", "no-store").setHeader("X-Content-Type-Options", "nosniff").setHeader("Content-Type", "application/json; charset=utf-8").json(body);
@@ -47,7 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const prompt = [
     focusedOnly
-      ? "You are a meticulous exam-question extraction engine using a crop of the SAME original PDF page. Read only an actually visible question stem and options. A banner or question number alone is not the question statement. If the crop contains only givens, equations, or a teacher solution and the requested task is not visible, return no question rather than reconstructing it."
+      ? "You are a meticulous exam-question extraction engine using a crop of the SAME original PDF page. Read only an actually visible question stem and options. A banner or question number alone is not the question statement. If the crop contains only givens, equations, or a teacher solution and the requested task is not visible, return no question rather than reconstructing it. Set diagramRegion to null because crop-only coordinates cannot safely refer to the full original page."
       : "You are a meticulous, high-recall exam-question extraction engine. Inspect all supplied views of the SAME PDF page: the full slide for context and focused overlapping crops for small printed text. Read each view closely; the crops are not separate pages.",
     "IMAGE-ONLY RULE: when selectable text is missing or very short, the pixels are the source of truth, not an empty page. Inspect the printed banner, every stem line, each option, and lower/side regions. Return one JSON object per distinct printed question; never return only the clearest question if more than one is visible.",
     "LECTURE-SLIDE RULE: a red/colored question banner or a heading such as QUESTION 1 is a clue to inspect the slide, not proof that the task statement is visible. Transcribe the actual question stem and options only if they can be read on the source page. Ignore teacher working and never reconstruct a missing prompt from a derivation.",
@@ -59,7 +60,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     "MATH OUTPUT FORMAT: do not add dollar-sign or backslash math delimiters, and do not emit LaTeX macros that would print literally. Use faithful readable plain-text notation (for example x^2, sqrt(x), or a/b) without changing signs, values, or powers. If the source math cannot be transcribed reliably, keep legible parts, mark uncertain parts [unclear], and require review.",
     "Return only question statements, their subparts, options and necessary diagram descriptions. NEVER include answers, worked solutions, hints, explanations or answer-key text even when printed nearby. Ignore solution paragraphs. If part of a question is visibly present but unreadable, retain all legible text, mark the unreadable span [unclear], and require review instead of dropping the question or guessing.",
     "For any required diagram, geometry figure, graph or table, describe visible labels, shapes, axes, arrows and markings without inventing details. For a continued question, capture only the visible portion and flag it for review. Return an empty questions array when no actual problem statement is visible, even if the page has a question-number heading, givens, equations or a worked solution.",
-    "Return JSON only: {\"questions\":[{\"questionText\":\"...\",\"options\":[\"(A) ...\"],\"diagramDescription\":\"\",\"confidence\":0.0,\"reviewRequired\":false,\"reviewNotes\":[]}]}",
+    "DIAGRAM REGION RULE: when a question depends on a figure, graph, circuit, geometry drawing or table, return diagramRegion as {x,y,width,height} with integer coordinates from 0 to 1000 relative to the FULL PAGE VIEW only. Give a tight box around the figure and its labels, excluding handwritten working, derivations, calculations, answers and unrelated text. Return null if a safe tight box cannot be identified; never use the whole slide as a figure crop.",
+    "Return JSON only: {\"questions\":[{\"questionText\":\"...\",\"options\":[\"(A) ...\"],\"diagramDescription\":\"\",\"diagramRegion\":null,\"confidence\":0.0,\"reviewRequired\":false,\"reviewNotes\":[]}]}",
     "Source filename: " + fileName,
     "Page: " + pageNumber + " of " + pageCount,
     "Selectable PDF text (may be incomplete; the attached page image must also be inspected):",
@@ -82,10 +84,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const options = Array.isArray(q?.options) ? q.options.slice(0, 12).map((o) => cleanString(o, 1500)) : [];
       const confidence = typeof q?.confidence === "number" && Number.isFinite(q.confidence) ? Math.max(0, Math.min(1, q.confidence)) : 0.5;
       const diagramDescription = cleanString(q?.diagramDescription, 3000);
+      const diagramRegion = focusedOnly ? undefined : normalizeDiagramRegion(q?.diagramRegion);
       const reviewNotes = Array.isArray(q?.reviewNotes) ? q.reviewNotes.slice(0, 8).map(n => cleanString(n, 500)).filter(Boolean) : [];
       const reviewRequired = shouldFlagForReview({ explicitReview: q?.reviewRequired, confidence, questionText, options, diagramDescription });
       if (!questionText) reviewNotes.push("Question text is missing or unreadable.");
-      return { questionText, options, diagramDescription, confidence, reviewRequired: reviewRequired || !questionText, reviewNotes };
+      return { questionText, options, diagramDescription, diagramRegion, confidence, reviewRequired: reviewRequired || !questionText, reviewNotes };
     }).filter(q => {
       const givenOnly = /^\s*(?:question\s*(?:no\.?\s*)?\d+\s*[:.\-]?\s*)?given\b/i.test(q.questionText)
         && !/\b(find|calculate|determine|compute|evaluate|solve|prove|show|obtain|select|choose|identify|derive)\b/i.test(q.questionText);

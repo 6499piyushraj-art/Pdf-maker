@@ -2,9 +2,10 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ThinkingLevel } from "@google/genai";
 import { protectedApiError } from "../src/server/auth";
 import { hasGeminiApiKey, withGeminiApiKeyFailover } from "../src/server/gemini";
+import { normalizeDiagramRegion, type DiagramRegion } from "../src/lib/diagram-region";
 
 type Input = { fileName?: unknown; pageNumber?: unknown; pageText?: unknown; imageData?: unknown; imageDataSegments?: unknown; questions?: unknown };
-type Candidate = { questionText: string; options: string[]; diagramDescription: string; confidence: number; reviewRequired: boolean; reviewNotes: string[] };
+type Candidate = { questionText: string; options: string[]; diagramDescription: string; diagramRegion?: DiagramRegion; confidence: number; reviewRequired: boolean; reviewNotes: string[] };
 function json(res: VercelResponse, status: number, body: unknown) {
   return res.status(status).setHeader("Cache-Control", "no-store").setHeader("X-Content-Type-Options", "nosniff").setHeader("Content-Type", "application/json; charset=utf-8").json(body);
 }
@@ -40,7 +41,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const questions = body.questions.map((q: any) => ({
     questionText: str(q?.questionText, 8000),
     options: Array.isArray(q?.options) ? q.options.slice(0, 12).map((v: unknown) => str(v, 1500)) : [],
-    diagramDescription: str(q?.diagramDescription, 3000)
+    diagramDescription: str(q?.diagramDescription, 3000),
+    diagramRegion: normalizeDiagramRegion(q?.diagramRegion)
   }));
   if (!hasGeminiApiKey()) return json(res, 503, { error: "Configure a Gemini API key on the server before auditing pages." });
 
@@ -53,7 +55,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     "SEMANTIC DEDUPLICATION RULE: missingQuestions must include only genuinely distinct questions not already represented by FIRST-PASS QUESTIONS. Different OCR/model phrasings of the same stem, options, values and diagram are the same question; never return shortened paraphrases as additional questions. Crops are views of one page, not separate question sources.",
     "MATH FIDELITY: do not silently correct equations. Keep visible notation as faithfully as possible, mark uncertain spans [unclear], and request manual review for questionable transcription.",
     "MATH OUTPUT FORMAT: do not add dollar-sign or backslash math delimiters, and do not emit LaTeX macros that would print literally. Use faithful readable plain-text notation such as x^2, sqrt(x), or a/b without changing signs, values or powers; mark genuinely uncertain pieces [unclear] and request review.",
-    "Return JSON only: {\"issues\":[{\"questionIndex\":0,\"issue\":\"short concrete note\"}],\"missingQuestions\":[{\"questionText\":\"...\",\"options\":[\"...\"],\"diagramDescription\":\"\",\"confidence\":0.0,\"reviewRequired\":true,\"reviewNotes\":[]}],\"summary\":\"short status\"}",
+    "DIAGRAM REGION RULE: for a missing question that depends on a figure, graph, circuit, geometry drawing or table, return diagramRegion as {x,y,width,height} with integer coordinates from 0 to 1000 relative to the FULL PAGE VIEW only. Make the box tight around the figure and its labels; exclude handwritten working, derivations, calculations and answers. Return null if a safe tight box cannot be identified, never the whole slide.",
+    "Return JSON only: {\"issues\":[{\"questionIndex\":0,\"issue\":\"short concrete note\"}],\"missingQuestions\":[{\"questionText\":\"...\",\"options\":[\"...\"],\"diagramDescription\":\"\",\"diagramRegion\":null,\"confidence\":0.0,\"reviewRequired\":true,\"reviewNotes\":[]}],\"summary\":\"short status\"}",
     "File: " + fileName + "; page: " + pageNumber,
     "SELECTABLE SOURCE TEXT:",
     pageText || "[No selectable text; use the attached image.]",
@@ -78,9 +81,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const questionText = str(q?.questionText, 8000);
       const options = Array.isArray(q?.options) ? q.options.slice(0, 12).map((v: unknown) => str(v, 1500)) : [];
       const diagramDescription = str(q?.diagramDescription, 3000);
+      const diagramRegion = normalizeDiagramRegion(q?.diagramRegion);
       const confidence = typeof q?.confidence === "number" && Number.isFinite(q.confidence) ? Math.max(0, Math.min(1, q.confidence)) : 0.5;
       const reviewNotes = Array.isArray(q?.reviewNotes) ? q.reviewNotes.slice(0, 8).map((v: unknown) => str(v, 500)).filter(Boolean) : [];
-      return { questionText, options, diagramDescription, confidence, reviewRequired: true, reviewNotes: [...reviewNotes, "Recovered by second-pass visual completeness check; compare with the source PDF."] };
+      return { questionText, options, diagramDescription, diagramRegion, confidence, reviewRequired: true, reviewNotes: [...reviewNotes, "Recovered by second-pass visual completeness check; compare with the source PDF."] };
     }).filter((q: Candidate) => q.questionText && !/^\s*\[?unclear\]?\s*$/i.test(q.questionText)) : [];
     return json(res, 200, { issues, missingQuestions, summary: str(parsed?.summary, 1000) });
   } catch (error) {
