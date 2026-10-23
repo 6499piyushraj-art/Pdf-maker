@@ -6,6 +6,7 @@ const main = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
 const extract = await readFile(new URL("../api/extract.ts", import.meta.url), "utf8");
 const audit = await readFile(new URL("../api/audit.ts", import.meta.url), "utf8");
 const dedupe = await import("../src/lib/question-dedupe.ts");
+const dedupeSource = await readFile(new URL("../src/lib/question-dedupe.ts", import.meta.url), "utf8");
 
 test("PDF pages are sent to Gemini at higher resolution and quality", () => {
   assert.equal((main.match(/Math\.min\(2, 2300 \/ baseViewport\.width\)/g) || []).length, 2);
@@ -103,7 +104,8 @@ test("image-only pages with partial results receive focused retries instead of s
 });
 
 test("question deduplication preserves Hindi and other non-Latin scripts", () => {
-  assert.match(main, /replace\(\/\[\^\\p\{L\}\\p\{N\}\]\+\/gu, " "\)/);
+  assert.equal(dedupe.questionKey("केंद्र द्रव्यमान"), dedupe.questionKey("केंद्र-द्रव्यमान"));
+  assert.match(dedupeSource, /\\p\\{L\\}/);
 });
 
 test("question slides with selectable text still get focused completeness retries", () => {
@@ -126,7 +128,7 @@ test("semantic deduplication merges paraphrased model candidates and rejects wea
   assert.equal(typeof dedupe.deduplicateCandidates, "function");
   assert.equal(typeof dedupe.isPlausibleQuestionText, "function");
   assert.match(main, /deduplicateCandidates\(Array\.isArray\(result\.questions\)/);
-  assert.match(main, /Near-duplicate AI candidates were merged/);
+  assert.match(dedupeSource, /Duplicate or near-duplicate candidates were merged/);
   assert.match(extract, /NO-INVENTION RULE/);
   assert.match(extract, /DUPLICATE RULE/);
   assert.match(audit, /SEMANTIC DEDUPLICATION RULE/);

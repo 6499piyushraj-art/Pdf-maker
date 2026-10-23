@@ -20,6 +20,8 @@ export function questionKey(value: string): string {
     .replace(/\bcent(?:er|re)\s+of\s+mass\b/g, " centerofmass ")
     .replace(/\bcom\b/g, " centerofmass ")
     .replace(/\bcentre\b/g, "center")
+    .replace(/([\p{L}])(\p{N})/gu, "$1 $2")
+    .replace(/(\p{N})([\p{L}])/gu, "$1 $2")
     .replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
 }
 
