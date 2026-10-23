@@ -80,7 +80,7 @@ test("partial image-only results merge questions from individual crops", () => {
   assert.ok(main.includes("for (const cropData of input.imageDataSegments)"));
   assert.ok(main.includes("focusedFallbackPasses"));
   assert.match(extract, /LECTURE-SLIDE RULE/);
-  assert.match(extract, /Never reconstruct a missing prompt from a derivation/);
+  assert.match(extract, /never reconstruct a missing prompt from a derivation/i);
   assert.match(extract, /Ignore teacher working/);
 });
 
