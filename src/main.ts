@@ -70,10 +70,11 @@ async function extractPageWithFocusedFallback(input: {
   const initial = await jsonPost("/api/extract", { ...input });
   const initialQuestions: any[] = Array.isArray(initial?.questions) ? initial.questions : [];
   const imageOnlyPage = input.pageText.trim().length < 80;
-
-  // Image-only pages returning only a few questions may still be incomplete.
-  // Retry up to five detected questions; larger pages still get the independent audit pass.
-  if (!imageOnlyPage || input.imageDataSegments.length < 2 || initialQuestions.length > 5) return initial;
+  const hasQuestionCue = /\b(?:question|jee|mains|advanced|mcq|assertion|reason|exercise|practice|calculate|determine|find|solve|evaluate|which|what|how|prove|show that)\b|\bQ\s*\.?\s*\d+\b/i.test(input.pageText);
+  // Text extraction can contain titles/teacher notes while missing the printed question itself.
+  // Retry sparse results even when selectable text exists; use more crop calls only when page cues suggest questions.
+  const shouldRetryFocused = imageOnlyPage || initialQuestions.length <= 1 || (initialQuestions.length <= 2 && hasQuestionCue);
+  if (!shouldRetryFocused || input.imageDataSegments.length < 2 || initialQuestions.length > 5) return initial;
 
   const candidateSets: any[][] = [initialQuestions];
   const collectUnique = (sets: any[][]): any[] => {
@@ -109,7 +110,7 @@ async function extractPageWithFocusedFallback(input: {
 
   // If only 0-2 distinct questions were found, read upper/lower crops separately.
   // This catches cases where one clear question hides another on the same slide.
-  if (collectUnique(candidateSets).length <= 2) {
+  if (collectUnique(candidateSets).length <= 2 && (imageOnlyPage || hasQuestionCue || initialQuestions.length === 0)) {
     for (const cropData of input.imageDataSegments) {
       try {
         const cropResult = await jsonPost("/api/extract", {
@@ -298,7 +299,7 @@ async function processFiles() {
             questionText: String(q.questionText || ""), options: Array.isArray(q.options) ? q.options.map(String) : [],
 diagramDescription: String(q.diagramDescription || ""),
             confidence: Number.isFinite(q.confidence) ? Math.max(0, Math.min(1, q.confidence)) : 0.5,
-            reviewRequired: Boolean(q.reviewRequired) || Boolean(result.focusedFallbackUsed), reviewNotes: [...(Array.isArray(q.reviewNotes) ? q.reviewNotes.map(String) : []), ...(result.focusedFallbackUsed ? ["Recovered by focused-only fallback; verify against the source PDF."] : [])]
+            reviewRequired: Boolean(q.reviewRequired) || Boolean(result.focusedFallbackUsed) || Boolean(result.focusedFallbackAttempted), reviewNotes: [...(Array.isArray(q.reviewNotes) ? q.reviewNotes.map(String) : []), ...(result.focusedFallbackUsed ? ["Recovered by focused-only fallback; verify against the source PDF."] : []), ...(result.focusedFallbackAttempted && !result.focusedFallbackUsed ? ["Focused completeness re-scan ran; manually compare this page with the source PDF for omissions."] : [])]
           }));
           let audit: any = { issues: [] };
           try {
@@ -356,7 +357,7 @@ async function retryPage(fileName: string, pageNumber: number) {
       questionText: String(q.questionText || ""), options: Array.isArray(q.options) ? q.options.map(String) : [],
 diagramDescription: String(q.diagramDescription || ""),
       confidence: Number.isFinite(q.confidence) ? Math.max(0, Math.min(1, q.confidence)) : 0.5,
-      reviewRequired: Boolean(q.reviewRequired) || Boolean(result.focusedFallbackUsed), reviewNotes: [...(Array.isArray(q.reviewNotes) ? q.reviewNotes.map(String) : []), ...(result.focusedFallbackUsed ? ["Recovered by focused-only fallback; verify against the source PDF."] : [])]
+      reviewRequired: Boolean(q.reviewRequired) || Boolean(result.focusedFallbackUsed) || Boolean(result.focusedFallbackAttempted), reviewNotes: [...(Array.isArray(q.reviewNotes) ? q.reviewNotes.map(String) : []), ...(result.focusedFallbackUsed ? ["Recovered by focused-only fallback; verify against the source PDF."] : []), ...(result.focusedFallbackAttempted && !result.focusedFallbackUsed ? ["Focused completeness re-scan ran; manually compare this page with the source PDF for omissions."] : [])]
     }));
     try {
       const audit = await jsonPost("/api/audit", { fileName: file.name, pageNumber, pageText, imageData, imageDataSegments, questions: questions.map(q => ({ questionText: q.questionText, options: q.options, diagramDescription: q.diagramDescription })) });
