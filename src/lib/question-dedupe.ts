@@ -1,7 +1,10 @@
+import { diagramRegionArea, normalizeDiagramRegion } from "./diagram-region";
+
 export type QuestionCandidate = {
   questionText?: unknown;
   options?: unknown;
   diagramDescription?: unknown;
+  diagramRegion?: unknown;
   confidence?: unknown;
   reviewRequired?: unknown;
   reviewNotes?: unknown;
@@ -97,6 +100,9 @@ export function addCandidateDeduplicated<T extends QuestionCandidate>(list: T[],
   if (optionScore(candidate.options) > optionScore(existing.options)) existing.options = candidate.options;
   if (String(candidate?.diagramDescription || "").length > String(existing?.diagramDescription || "").length) {
     existing.diagramDescription = candidate.diagramDescription;
+  }
+  if (diagramRegionArea(candidate.diagramRegion) < diagramRegionArea(existing.diagramRegion)) {
+    existing.diagramRegion = normalizeDiagramRegion(candidate.diagramRegion);
   }
   existing.reviewRequired = Boolean(existing?.reviewRequired || candidate?.reviewRequired || questionKey(existingText) !== questionKey(text));
   existing.confidence = Math.min(
