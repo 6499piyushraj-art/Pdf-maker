@@ -2,12 +2,13 @@ import * as pdfjsLib from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import "./style.css";
 import { addCandidateDeduplicated, deduplicateCandidates, questionKey } from "./lib/question-dedupe";
+import { normalizeDiagramRegion, type DiagramRegion } from "./lib/diagram-region";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 type Question = {
   id: string; fileName: string; pageNumber: number; questionText: string;
-  options: string[]; diagramDescription: string; confidence: number;
+  options: string[]; diagramDescription: string; diagramRegion?: DiagramRegion; diagramImage?: string; confidence: number;
   reviewRequired: boolean; reviewNotes: string[];
 };
 type PageRecord = { fileName: string; pageNumber: number; text: string; status: "done" | "failed"; error?: string; questions: number; sourcePreview?: string; sourceLoading?: boolean; verifiedEmpty?: boolean };
@@ -28,6 +29,66 @@ function makeSourcePreview(canvas: HTMLCanvasElement): string {
   const dataUrl = preview.toDataURL("image/jpeg", 0.66);
   preview.width = 0; preview.height = 0;
   return dataUrl;
+}
+
+function makeDiagramCropImage(canvas: HTMLCanvasElement, value: unknown): string | undefined {
+  const region = normalizeDiagramRegion(value);
+  if (!region) return undefined;
+  const x0 = canvas.width * region.x / 1000;
+  const y0 = canvas.height * region.y / 1000;
+  const x1 = canvas.width * (region.x + region.width) / 1000;
+  const y1 = canvas.height * (region.y + region.height) / 1000;
+  // A little padding preserves labels, but a broad crop could leak unrelated handwritten working.
+  const padX = Math.round(canvas.width * 0.012);
+  const padY = Math.round(canvas.height * 0.012);
+  const sx = Math.max(0, Math.floor(x0) - padX);
+  const sy = Math.max(0, Math.floor(y0) - padY);
+  const ex = Math.min(canvas.width, Math.ceil(x1) + padX);
+  const ey = Math.min(canvas.height, Math.ceil(y1) + padY);
+  const sourceWidth = ex - sx;
+  const sourceHeight = ey - sy;
+  const cropAreaRatio = sourceWidth * sourceHeight / (canvas.width * canvas.height);
+  if (cropAreaRatio > 0.45 || sourceWidth < 120 || sourceHeight < 75) return undefined;
+  // Bound retained image size so a large question bank does not retain full-resolution pages.
+  const scale = Math.min(1, 1200 / Math.max(sourceWidth, sourceHeight));
+  const crop = document.createElement("canvas");
+  crop.width = Math.max(1, Math.round(sourceWidth * scale));
+  crop.height = Math.max(1, Math.round(sourceHeight * scale));
+  const context = crop.getContext("2d");
+  if (!context) return undefined;
+  context.drawImage(canvas, sx, sy, sourceWidth, sourceHeight, 0, 0, crop.width, crop.height);
+  const dataUrl = crop.toDataURL("image/jpeg", 0.78);
+  crop.width = 0;
+  crop.height = 0;
+  return dataUrl.length <= 650_000 ? dataUrl : undefined;
+}
+
+function attachDiagramCrops(questions: Question[], sourceCanvas: HTMLCanvasElement): void {
+  for (const question of questions) {
+    const region = normalizeDiagramRegion(question.diagramRegion);
+    if (region) {
+      const crop = makeDiagramCropImage(sourceCanvas, region);
+      if (crop) {
+        question.diagramRegion = region;
+        question.diagramImage = crop;
+      } else {
+        question.reviewRequired = true;
+        question.reviewNotes.push("The proposed figure crop was too broad or too small to preserve safely. Open the original PDF page to inspect it.");
+      }
+    } else if (question.diagramDescription.trim()) {
+      question.reviewRequired = true;
+      if (!question.reviewNotes.some(note => /figure crop|diagram crop/i.test(note))) {
+        question.reviewNotes.push("No safe figure-crop coordinates were returned. Open the original PDF page to inspect the diagram.");
+      }
+    }
+  }
+}
+
+function renderDiagramCrop(question: Question): string {
+  if (!question.diagramImage) return "";
+  return '<details class="diagram-image"><summary>View original figure crop</summary><img src="' +
+    escapeHtml(question.diagramImage) + '" alt="Figure crop from original PDF page ' + question.pageNumber +
+    '" loading="lazy"></details>';
 }
 
 function makePageImagePayload(canvas: HTMLCanvasElement): { imageData: string; imageDataSegments: string[] } {
@@ -197,6 +258,7 @@ function render() {
     <label class="field-label">Question</label><textarea data-edit="questionText" data-id="${q.id}" rows="2">${escapeHtml(q.questionText)}</textarea>
     ${q.options.length?'<label class="field-label">Options</label>'+q.options.map((o,j)=>`<input class="option-edit" data-option="${j}" data-id="${q.id}" value="${escapeHtml(o)}">`).join(""):""}
     ${q.diagramDescription?'<p class="diagram-note">Diagram: '+escapeHtml(q.diagramDescription)+'</p>':""}
+    ${renderDiagramCrop(q)}
     ${renderSourceReference(q.fileName, q.pageNumber)}
     ${q.reviewNotes.length?'<p class="review-note">'+escapeHtml(q.reviewNotes.join(" · "))+'</p>':""}
     <div class="card-footer"><span>Confidence ${Math.round(q.confidence*100)}%</span><label class="review-toggle"><input type="checkbox" data-review="${q.id}" ${q.reviewRequired?"checked":""}> Needs manual review</label></div></article>`).join("") : '<div class="empty-state"><div>✧</div><h3>No questions yet</h3><p>Choose your PDFs above, then start extraction.</p></div>') : (state.pages.length ? state.pages.map(p=>`<div class="page-row"><span class="status-dot ${p.status}"></span><div><strong>${escapeHtml(p.fileName)} · page ${p.pageNumber}</strong><small>${p.status==="done"?(p.questions===0?"No questions detected — manually verify this page; faint/scanned questions can be missed":p.questions+" question(s) extracted"):escapeHtml(p.error||"Processing failed")}</small></div>${(p.status==="failed"||p.questions===0)?'<button class="retry secondary" data-file="'+escapeHtml(p.fileName)+'" data-page="'+p.pageNumber+'">'+(p.status==="failed"?"Retry page":"Re-scan page")+'</button>':""}</div>`).join(""):'<div class="empty-state"><h3>No pages processed yet</h3><p>Your page-by-page progress will appear here.</p></div>')}
@@ -336,13 +398,13 @@ async function processFiles() {
           const newQuestions: Question[] = deduplicateCandidates(Array.isArray(result.questions) ? result.questions : []).map((q: any) => ({
             id: crypto.randomUUID(), fileName: file.name, pageNumber,
             questionText: String(q.questionText || ""), options: Array.isArray(q.options) ? q.options.map(String) : [],
-diagramDescription: String(q.diagramDescription || ""),
+diagramDescription: String(q.diagramDescription || ""), diagramRegion: normalizeDiagramRegion(q.diagramRegion),
             confidence: Number.isFinite(q.confidence) ? Math.max(0, Math.min(1, q.confidence)) : 0.5,
             reviewRequired: Boolean(q.reviewRequired) || Boolean(result.focusedFallbackUsed) || Boolean(result.focusedFallbackAttempted), reviewNotes: [...(Array.isArray(q.reviewNotes) ? q.reviewNotes.map(String) : []), ...(result.focusedFallbackUsed ? ["Recovered by focused-only fallback; verify against the source PDF."] : []), ...(result.focusedFallbackAttempted && !result.focusedFallbackUsed ? ["Focused completeness re-scan ran; manually compare this page with the source PDF for omissions."] : [])]
           }));
           let audit: any = { issues: [] };
           try {
-            audit = await jsonPost("/api/audit", { fileName: file.name, pageNumber, pageText, imageData, imageDataSegments, questions: newQuestions.map(q => ({ questionText: q.questionText, options: q.options, diagramDescription: q.diagramDescription })) });
+            audit = await jsonPost("/api/audit", { fileName: file.name, pageNumber, pageText, imageData, imageDataSegments, questions: newQuestions.map(q => ({ questionText: q.questionText, options: q.options, diagramDescription: q.diagramDescription, diagramRegion: q.diagramRegion })) });
             for (const issue of audit.issues || []) {
               const q = newQuestions[Number(issue.questionIndex)];
               if (q) { q.reviewRequired = true; q.reviewNotes.push(String(issue.issue || "Second-pass audit flagged this question.")); }
@@ -351,6 +413,8 @@ diagramDescription: String(q.diagramDescription || ""),
             for (const q of newQuestions) { q.reviewRequired = true; q.reviewNotes.push("Second-pass audit failed; compare this page with the original PDF."); }
           }
           mergeRecoveredQuestions(newQuestions, audit?.missingQuestions || [], file.name, pageNumber);
+
+          attachDiagramCrops(newQuestions, canvas);
           state.questions.push(...newQuestions);
           state.pages.push({ fileName: file.name, pageNumber, text: pageText, status: "done", questions: newQuestions.length });
         } catch (error) {
@@ -394,17 +458,19 @@ async function retryPage(fileName: string, pageNumber: number) {
     const questions: Question[] = deduplicateCandidates(Array.isArray(result.questions) ? result.questions : []).map((q: any) => ({
       id: crypto.randomUUID(), fileName: file.name, pageNumber,
       questionText: String(q.questionText || ""), options: Array.isArray(q.options) ? q.options.map(String) : [],
-diagramDescription: String(q.diagramDescription || ""),
+diagramDescription: String(q.diagramDescription || ""), diagramRegion: normalizeDiagramRegion(q.diagramRegion),
       confidence: Number.isFinite(q.confidence) ? Math.max(0, Math.min(1, q.confidence)) : 0.5,
       reviewRequired: Boolean(q.reviewRequired) || Boolean(result.focusedFallbackUsed) || Boolean(result.focusedFallbackAttempted), reviewNotes: [...(Array.isArray(q.reviewNotes) ? q.reviewNotes.map(String) : []), ...(result.focusedFallbackUsed ? ["Recovered by focused-only fallback; verify against the source PDF."] : []), ...(result.focusedFallbackAttempted && !result.focusedFallbackUsed ? ["Focused completeness re-scan ran; manually compare this page with the source PDF for omissions."] : [])]
     }));
     try {
-      const audit = await jsonPost("/api/audit", { fileName: file.name, pageNumber, pageText, imageData, imageDataSegments, questions: questions.map(q => ({ questionText: q.questionText, options: q.options, diagramDescription: q.diagramDescription })) });
+      const audit = await jsonPost("/api/audit", { fileName: file.name, pageNumber, pageText, imageData, imageDataSegments, questions: questions.map(q => ({ questionText: q.questionText, options: q.options, diagramDescription: q.diagramDescription, diagramRegion: q.diagramRegion })) });
       for (const issue of audit.issues || []) {
         const q = questions[Number(issue.questionIndex)];
         if (q) { q.reviewRequired = true; q.reviewNotes.push(String(issue.issue || "Second-pass audit flagged this question.")); }
       }
       mergeRecoveredQuestions(questions, audit?.missingQuestions || [], file.name, pageNumber);
+
+      attachDiagramCrops(questions, canvas);
     } catch {
       for (const q of questions) { q.reviewRequired = true; q.reviewNotes.push("Second-pass audit failed; compare this page with the original PDF."); }
     }
@@ -563,14 +629,17 @@ function downloadQuestionPdf() {
     const diagram = q.diagramDescription
       ? '<section class="diagram"><h2>Diagram / figure notes</h2><p>' + escapeHtml(q.diagramDescription).replace(/\r?\n/g, "<br>") + "</p></section>"
       : "";
+    const diagramImage = q.diagramImage
+      ? '<section class="diagram-image-print"><h2>Original figure crop</h2><img src="' + escapeHtml(q.diagramImage) + '" alt="Figure cropped from original PDF page ' + q.pageNumber + '" loading="lazy"></section>'
+      : "";
     const review = q.reviewRequired
       ? '<p class="review-note">Please verify this question against the original PDF.</p>'
       : "";
-    return '<section class="question-page"><header><span>PaperPilot AI · Question Bank</span><span>Question ' + (index + 1) + " of " + state.questions.length + '</span></header><h1>Question ' + (index + 1) + '</h1><p class="source">Source: ' + escapeHtml(q.fileName) + " · original PDF page " + q.pageNumber + '</p><div class="stem">' + questionText + '</div>' + (options ? '<section class="options"><h2>Options</h2>' + options + '</section>' : "") + diagram + review + '<footer>Extracted question only · answers and worked solutions are not included</footer></section>';
+    return '<section class="question-page"><header><span>PaperPilot AI · Question Bank</span><span>Question ' + (index + 1) + " of " + state.questions.length + '</span></header><h1>Question ' + (index + 1) + '</h1><p class="source">Source: ' + escapeHtml(q.fileName) + " · original PDF page " + q.pageNumber + '</p><div class="stem">' + questionText + '</div>' + (options ? '<section class="options"><h2>Options</h2>' + options + '</section>' : "") + diagram + diagramImage + review + '<footer>Extracted question only · answers and worked solutions are not included</footer></section>';
   }).join("");
 
   const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PaperPilot-Question-Bank</title><style>' +
-    '@page{size:A4;margin:17mm 16mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#172033;font-size:12pt;line-height:1.55;margin:0}.question-page{position:relative;break-after:page;page-break-after:always;break-inside:auto;min-height:250mm;padding-bottom:15mm}.question-page:last-child{break-after:auto;page-break-after:auto}header{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #d8dfeb;padding-bottom:9px;color:#536179;font-size:9pt}h1{font-size:21pt;line-height:1.2;margin:24px 0 8px;color:#111827}.source{font-size:9pt;color:#5b6578;margin:0 0 22px;overflow-wrap:anywhere}.stem{font-size:12pt;white-space:normal;overflow-wrap:anywhere}.options{margin-top:24px}.options h2,.diagram h2{font-size:11pt;margin:0 0 9px}.option{margin:8px 0 8px 12px;white-space:normal;overflow-wrap:anywhere}.diagram{margin-top:22px;padding:12px;border:1px solid #d9e0ea;border-radius:8px;break-inside:avoid}.diagram p{margin:0;overflow-wrap:anywhere}.review-note{margin-top:22px;padding:8px 10px;border-left:3px solid #b7791f;color:#714d11;font-size:9pt}.question-page footer{position:absolute;bottom:0;left:0;right:0;border-top:1px solid #e1e5ec;padding-top:7px;color:#788195;font-size:8pt}@media screen{body{background:#eef1f7;padding:18px}.question-page{background:white;max-width:800px;margin:0 auto 18px;padding:28px;box-shadow:0 4px 24px #17203318;min-height:980px}.question-page footer{left:28px;right:28px;bottom:28px}}@media print{.question-page{min-height:0}.question-page footer{position:fixed}}' +
+    '@page{size:A4;margin:17mm 16mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#172033;font-size:12pt;line-height:1.55;margin:0}.question-page{position:relative;break-after:page;page-break-after:always;break-inside:auto;min-height:250mm;padding-bottom:15mm}.question-page:last-child{break-after:auto;page-break-after:auto}header{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #d8dfeb;padding-bottom:9px;color:#536179;font-size:9pt}h1{font-size:21pt;line-height:1.2;margin:24px 0 8px;color:#111827}.source{font-size:9pt;color:#5b6578;margin:0 0 22px;overflow-wrap:anywhere}.stem{font-size:12pt;white-space:normal;overflow-wrap:anywhere}.options{margin-top:24px}.options h2,.diagram h2{font-size:11pt;margin:0 0 9px}.option{margin:8px 0 8px 12px;white-space:normal;overflow-wrap:anywhere}.diagram{margin-top:22px;padding:12px;border:1px solid #d9e0ea;border-radius:8px;break-inside:avoid}.diagram p{margin:0;overflow-wrap:anywhere}.diagram-image-print{margin-top:14px;break-inside:avoid}.diagram-image-print h2{font-size:10pt;margin:0 0 7px}.diagram-image-print img{display:block;max-width:100%;max-height:68mm;object-fit:contain;margin:0 auto}.review-note{margin-top:22px;padding:8px 10px;border-left:3px solid #b7791f;color:#714d11;font-size:9pt}.question-page footer{position:absolute;bottom:0;left:0;right:0;border-top:1px solid #e1e5ec;padding-top:7px;color:#788195;font-size:8pt}@media screen{body{background:#eef1f7;padding:18px}.question-page{background:white;max-width:800px;margin:0 auto 18px;padding:28px;box-shadow:0 4px 24px #17203318;min-height:980px}.question-page footer{left:28px;right:28px;bottom:28px}}@media print{.question-page{min-height:0}.question-page footer{position:fixed}}' +
     '</style></head><body><main>' + pages + '</main></body></html>';
 
   printWindow.document.open();
