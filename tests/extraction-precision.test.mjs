@@ -69,7 +69,8 @@ test("image-only pages with few detected questions retry focused crops", () => {
 });
 
 test("focused-only fallback labels crops honestly and accepts crop-only image payloads", () => {
-  assert.match(extract, /focused-only fallback: each attached image is a crop/i);
+  assert.match(extract, /using a crop of the SAME original PDF page/i);
+  assert.match(extract, /a banner or question number alone is not the question statement/i);
   assert.match(extract, /focusedOnly \? "FOCUSED CROP 1/);
   assert.match(extract, /!imageData && imageDataSegments.length === 0/);
 });
@@ -78,8 +79,9 @@ test("partial image-only results merge questions from individual crops", () => {
   assert.ok(main.includes("collectUnique(candidateSets)"));
   assert.ok(main.includes("for (const cropData of input.imageDataSegments)"));
   assert.ok(main.includes("focusedFallbackPasses"));
-  assert.ok(extract.includes("Question [JEE Mains-2023]"));
-  assert.ok(extract.includes("ignoring handwritten working, ticks, circles and answers"));
+  assert.match(extract, /LECTURE-SLIDE RULE/);
+  assert.match(extract, /Never reconstruct a missing prompt from a derivation/);
+  assert.match(extract, /Ignore teacher working/);
 });
 
 test("question bank PDF export works without Google Docs and starts each question on its own page", () => {
@@ -100,7 +102,8 @@ test("image-only pages with partial results receive focused retries instead of s
   assert.match(main, /collectUnique\(candidateSets\)\.length <= 2/);
   assert.match(main, /for \(const cropData of input\.imageDataSegments\)/);
   assert.match(extract, /pixels are the source of truth, not an empty page/i);
-  assert.match(audit, /do not recover only the easiest-to-read one/i);
+  assert.match(audit, /recover all actually visible omitted question statements/i);
+  assert.match(audit, /A banner alone is not a question stem/i);
 });
 
 test("question deduplication preserves Hindi and other non-Latin scripts", () => {
