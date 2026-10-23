@@ -235,12 +235,12 @@ test("safe diagram regions can be rendered as tight figure crops for clean PDF e
   assert.match(extract, /DIAGRAM REGION RULE/);
   assert.match(audit, /DIAGRAM REGION RULE/);
   assert.match(main, /function makeDiagramCropImage/);
-  assert.match(main, /cropAreaRatio > 0\\.45/);
+  assert.match(main, /cropAreaRatio > 0\.45/);
   assert.match(main, /function attachDiagramCrops/);
   assert.match(main, /diagram-image-print/);
-  assert.match(main, /renderDiagramCrop\\(q\\)/);
-  assert.match(main, /attachDiagramCrops\\(newQuestions, canvas\\)/);
-  assert.match(main, /attachDiagramCrops\\(questions, canvas\\)/);
+  assert.match(main, /renderDiagramCrop\(q\)/);
+  assert.match(main, /attachDiagramCrops\(newQuestions, canvas\)/);
+  assert.match(main, /attachDiagramCrops\(questions, canvas\)/);
   assert.match(dedupeSource, /diagramRegion/);
   assert.match(diagramRegionSource, /normalizeDiagramRegion/);
   assert.match(extract, /never use the whole slide as a figure crop/i);
