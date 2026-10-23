@@ -14,3 +14,18 @@
 
 /* Source-page evidence helps users verify equations and diagrams without trusting AI summaries alone. */
 .source-reference{margin-top:12px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#f8faf7}.source-reference summary{cursor:pointer;font-size:11px;font-weight:700;padding:10px 12px;color:var(--green)}.source-reference img{display:block;width:100%;max-height:620px;object-fit:contain;background:#111}.source-reference small{display:block;padding:8px 12px;color:#64748b;font-size:10px;line-height:1.4}
+
+
+/* Completeness-review panel for pages with no detected questions. */
+.empty-review-panel{margin:16px 0;padding:16px;border:1px solid var(--line);border-radius:12px;background:#fbfcfa}
+.empty-review-panel h3{font-size:14px;margin:0 0 6px;color:var(--green)}
+.empty-review-panel>p{font-size:11px;line-height:1.5;color:#6b7b72;margin:0 0 12px}
+.empty-review-row{padding:14px 0;border-top:1px solid var(--line);display:grid;gap:10px}
+.empty-review-row>strong{font-size:12px;overflow-wrap:anywhere}
+.empty-review-row .source-reference{margin:0}
+.empty-review-row .confirm-empty{justify-self:start}
+.source-reference-controls{padding:0 12px 10px}
+.source-reference-controls small{padding:7px 0 0}
+.load-source{font-size:10px;padding:8px 10px}
+.confirm-empty{font-size:10px;padding:8px 10px;white-space:normal}
+.confirm-empty:disabled{opacity:.55;cursor:not-allowed}

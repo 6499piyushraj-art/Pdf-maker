@@ -105,7 +105,7 @@ test("image-only pages with partial results receive focused retries instead of s
 
 test("question deduplication preserves Hindi and other non-Latin scripts", () => {
   assert.equal(dedupe.questionKey("केंद्र द्रव्यमान"), dedupe.questionKey("केंद्र-द्रव्यमान"));
-  assert.match(dedupeSource, /\\p\\{L\\}/);
+  assert.ok(dedupeSource.includes("\\p{L}"));
 });
 
 test("question slides with selectable text still get focused completeness retries", () => {
@@ -136,14 +136,14 @@ test("semantic deduplication merges paraphrased model candidates and rejects wea
   assert.match(audit, /MATH OUTPUT FORMAT/);
 });
 
-test("the original source page is preserved for review and included in question-bank PDF exports", () => {
+test("original source pages load on demand; clean question-bank PDF remains question-only", () => {
   assert.match(main, /function makeSourcePreview/);
   assert.match(main, /sourcePreview\?: string/);
   assert.match(main, /function renderSourceReference/);
   assert.match(main, /renderSourceReference\(q\.fileName, q\.pageNumber\)/);
   assert.match(main, /source-reference/);
   assert.match(main, /View original PDF page/);
-  const exportSection = main.slice(main.indexOf("function downloadQuestionPdf()"), main.indexOf("function renderGoogleDocsAction()"));
+  const exportSection = main.slice(main.indexOf("function downloadQuestionPdf()"), main.indexOf("async function exportGoogleDoc()"));
   assert.doesNotMatch(exportSection, /source-reference-print/);
   assert.match(main, /Extracted question only · answers and worked solutions are not included/);
 });
@@ -194,4 +194,20 @@ test("given-only notes and exact unclear placeholders are rejected but short act
   assert.equal(dedupe.isPlausibleQuestionText("[unclear]"), false);
   assert.equal(dedupe.isPlausibleQuestionText("Why?"), true);
   assert.equal(dedupe.isPlausibleQuestionText("Calculate x when x+2=5"), true);
+});
+
+
+test("selecting or rerunning a PDF set clears old results rather than mixing question banks", () => {
+  assert.match(main, /Previous results cleared for a clean extraction run/);
+  assert.match(main, /if \(state\.pages\.length \|\| state\.questions\.length\)/);
+  assert.match(main, /state\.questions = \[\];\s*state\.pages = \[\];\s*state\.search = ""/);
+});
+
+test("exports remain blocked until pages with zero detected questions are visually checked", () => {
+  assert.match(main, /function hasUnreviewedEmptyPages/);
+  assert.match(main, /Review empty pages first/);
+  assert.match(main, /class="confirm-empty"/);
+  assert.match(main, /class="load-source"/);
+  assert.match(main, /if \(hasUnreviewedEmptyPages\(\)\)/);
+  assert.match(main, /!page\.sourcePreview/);
 });
