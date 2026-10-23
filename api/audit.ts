@@ -62,7 +62,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const result = await withGeminiApiKeyFailover((ai) => ai.models.generateContent({
       model: process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash",
       contents: [{ role: "user", parts }],
-      config: { responseMimeType: "application/json", thinkingConfig: { thinkingLevel: "HIGH" }, maxOutputTokens: 16384 }
+      config: { responseMimeType: "application/json", thinkingConfig: { thinkingLevel: "high" }, maxOutputTokens: 16384 }
     }));
     const parsed = parseModelJson(result.text || "");
     const issues = Array.isArray(parsed?.issues) ? parsed.issues.slice(0, 30).map((issue: any) => ({
