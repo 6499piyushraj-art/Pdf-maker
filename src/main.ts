@@ -15,23 +15,39 @@ const state: AppState = { authenticated: false, configured: false, apiUnavailabl
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 function makePageImagePayload(canvas: HTMLCanvasElement): { imageData: string; imageDataSegments: string[] } {
-  const imageData = canvas.toDataURL("image/jpeg", 0.82).split(",")[1] || "";
-  // Image-only lecture PDFs often place small printed questions beside large handwritten work.
-  // Keep the full slide for context and add overlapping top/bottom crops for legibility.
-  const cropHeight = Math.max(1, Math.ceil(canvas.height * 0.62));
-  const cropStarts = [0, Math.max(0, canvas.height - cropHeight)];
-  const imageDataSegments = cropStarts.map((startY) => {
+  // Keep the full page as visual context and add two overlapping focused crops.
+  // Landscape lecture slides are usually column-based, so crop left/right; portrait pages crop top/bottom.
+  const landscape = canvas.width >= canvas.height;
+  const cropFraction = 0.66;
+  const cropCanvases = [0, 1].map((index) => {
     const crop = document.createElement("canvas");
-    crop.width = canvas.width;
-    crop.height = Math.min(cropHeight, canvas.height - startY);
     const context = crop.getContext("2d");
     if (!context) throw new Error("Could not prepare focused PDF image crops.");
-    context.drawImage(canvas, 0, startY, canvas.width, crop.height, 0, 0, crop.width, crop.height);
-    const encoded = crop.toDataURL("image/jpeg", 0.84).split(",")[1] || "";
-    crop.width = 0;
-    crop.height = 0;
-    return encoded;
+    if (landscape) {
+      crop.width = Math.min(canvas.width, Math.ceil(canvas.width * cropFraction));
+      crop.height = canvas.height;
+      const startX = index === 0 ? 0 : canvas.width - crop.width;
+      context.drawImage(canvas, startX, 0, crop.width, canvas.height, 0, 0, crop.width, crop.height);
+    } else {
+      crop.width = canvas.width;
+      crop.height = Math.min(canvas.height, Math.ceil(canvas.height * cropFraction));
+      const startY = index === 0 ? 0 : canvas.height - crop.height;
+      context.drawImage(canvas, 0, startY, canvas.width, crop.height, 0, 0, crop.width, crop.height);
+    }
+    return crop;
   });
+
+  let imageData = "";
+  let imageDataSegments: string[] = [];
+  // Browser/serverless request limits can reject a good visual pass if base64 payloads are too large.
+  // Re-encode progressively while preserving full-page context and sharper crop images.
+  for (const cropQuality of [0.82, 0.76, 0.70, 0.64, 0.58]) {
+    imageData = canvas.toDataURL("image/jpeg", Math.max(0.5, cropQuality - 0.08)).split(",")[1] || "";
+    imageDataSegments = cropCanvases.map((crop) => crop.toDataURL("image/jpeg", cropQuality).split(",")[1] || "");
+    const total = imageData.length + imageDataSegments.reduce((sum, value) => sum + value.length, 0);
+    if (imageData.length <= 1_750_000 && imageDataSegments.every((value) => value.length <= 1_250_000) && total <= 3_650_000) break;
+  }
+  for (const crop of cropCanvases) { crop.width = 0; crop.height = 0; }
   return { imageData, imageDataSegments };
 }
 
@@ -55,9 +71,9 @@ async function extractPageWithFocusedFallback(input: {
   const initialQuestions: any[] = Array.isArray(initial?.questions) ? initial.questions : [];
   const imageOnlyPage = input.pageText.trim().length < 80;
 
-  // Image-only pages returning 0-2 questions are likely partial reads.
-  // Retry only these pages to avoid extra calls for normal text PDFs.
-  if (!imageOnlyPage || input.imageDataSegments.length < 2 || initialQuestions.length > 2) return initial;
+  // Image-only pages returning only a few questions may still be incomplete.
+  // Retry up to five detected questions; larger pages still get the independent audit pass.
+  if (!imageOnlyPage || input.imageDataSegments.length < 2 || initialQuestions.length > 5) return initial;
 
   const candidateSets: any[][] = [initialQuestions];
   const collectUnique = (sets: any[][]): any[] => {
@@ -269,7 +285,7 @@ async function processFiles() {
           const textContent = await page.getTextContent();
           pageText = textContent.items.map((item) => "str" in item ? item.str + ("hasEOL" in item && item.hasEOL ? "\n" : " ") : "").join("").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
           const baseViewport = page.getViewport({ scale: 1 });
-          const viewport = page.getViewport({ scale: Math.min(2, 2560 / baseViewport.width) });
+          const viewport = page.getViewport({ scale: Math.min(2, 2300 / baseViewport.width) });
           const canvas = document.createElement("canvas");
           canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
           const context = canvas.getContext("2d");
@@ -327,7 +343,7 @@ async function retryPage(fileName: string, pageNumber: number) {
     const textContent = await page.getTextContent();
     const pageText = textContent.items.map((item) => "str" in item ? item.str + ("hasEOL" in item && item.hasEOL ? "\n" : " ") : "").join("").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
     const baseViewport = page.getViewport({ scale: 1 });
-    const viewport = page.getViewport({ scale: Math.min(2, 2560 / baseViewport.width) });
+    const viewport = page.getViewport({ scale: Math.min(2, 2300 / baseViewport.width) });
     const canvas = document.createElement("canvas");
     canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
     const context = canvas.getContext("2d");

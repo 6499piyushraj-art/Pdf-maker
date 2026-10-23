@@ -7,8 +7,9 @@ const extract = await readFile(new URL("../api/extract.ts", import.meta.url), "u
 const audit = await readFile(new URL("../api/audit.ts", import.meta.url), "utf8");
 
 test("PDF pages are sent to Gemini at higher resolution and quality", () => {
-  assert.equal((main.match(/Math\.min\(2, 2560 \/ baseViewport\.width\)/g) || []).length, 2);
-  assert.equal((main.match(/canvas\.toDataURL\("image\/jpeg", 0\.82\)/g) || []).length, 1);
+  assert.equal((main.match(/Math\.min\(2, 2300 \/ baseViewport\.width\)/g) || []).length, 2);
+  assert.match(main, /for \(const cropQuality of \[0\.82, 0\.76, 0\.70, 0\.64, 0\.58\]\)/);
+  assert.match(main, /total <= 3_650_000/);
 });
 
 test("selectable PDF text preserves end-of-line boundaries", () => {
@@ -39,11 +40,14 @@ test("second pass checks crops and can recover missing questions when the first 
 
 test("image-only PDF requests include full and focused overlapping views on initial run and retry", () => {
   assert.match(main, /function makePageImagePayload/);
-  assert.match(main, /cropHeight = Math\.max\(1, Math\.ceil\(canvas\.height \* 0\.62\)\)/);
+  assert.match(main, /const landscape = canvas\.width >= canvas\.height/);
+  assert.match(main, /cropFraction = 0\.66/);
+  assert.match(main, /startX = index === 0 \? 0 : canvas\.width - crop\.width/);
+  assert.match(main, /startY = index === 0 \? 0 : canvas\.height - crop\.height/);
   assert.equal((main.match(/makePageImagePayload\(canvas\)/g) || []).length, 2);
   assert.match(main, /imageDataSegments, questions:/);
-  assert.match(extract, /imageBytesTotal > 4400000/);
-  assert.match(audit, /imageBytesTotal > 4400000/);
+  assert.match(extract, /imageBytesTotal > 3650000/);
+  assert.match(audit, /imageBytesTotal > 3650000/);
 });
 
 test("pages with zero detected questions explicitly ask the user to verify them and can be re-scanned", () => {
@@ -54,7 +58,7 @@ test("pages with zero detected questions explicitly ask the user to verify them 
 
 test("image-only pages with few detected questions retry focused crops", () => {
   assert.ok(main.includes("const imageOnlyPage = input.pageText.trim().length < 80;"));
-  assert.ok(main.includes("initialQuestions.length > 2) return initial;"));
+  assert.ok(main.includes("initialQuestions.length > 5) return initial;"));
   assert.ok(main.includes("collectUnique(candidateSets).length <= 2"));
   assert.ok(main.includes("focusedOnly: true"));
   assert.ok(main.includes("focusedFallbackUsed: true"));
@@ -88,7 +92,7 @@ test("question bank PDF export works without Google Docs and starts each questio
 
 test("image-only pages with partial results receive focused retries instead of stopping at one question", () => {
   assert.match(main, /const imageOnlyPage = input\.pageText\.trim\(\)\.length < 80/);
-  assert.match(main, /initialQuestions\.length > 2\) return initial/);
+  assert.match(main, /initialQuestions\.length > 5\) return initial/);
   assert.match(main, /collectUnique\(candidateSets\)\.length <= 2/);
   assert.match(main, /for \(const cropData of input\.imageDataSegments\)/);
   assert.match(extract, /pixels are the source of truth, not an empty page/i);
