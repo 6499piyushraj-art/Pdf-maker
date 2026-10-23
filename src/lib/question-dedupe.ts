@@ -1,4 +1,4 @@
-import { diagramRegionArea, normalizeDiagramRegion } from "./diagram-region";
+import { diagramRegionArea, normalizeDiagramRegion } from "./diagram-region.ts";
 
 export type QuestionCandidate = {
   questionText?: unknown;
