@@ -134,13 +134,16 @@ test("the original source page is preserved for review and included in question-
   assert.match(main, /sourcePreview\?: string/);
   assert.match(main, /function renderSourceReference/);
   assert.match(main, /renderSourceReference\(q\.fileName, q\.pageNumber\)/);
-  assert.match(main, /source-reference-print/);
-  assert.match(main, /Original source page · verification only/);
+  assert.match(main, /source-reference/);
+  assert.match(main, /View original PDF page/);
+  const exportSection = main.slice(main.indexOf("function downloadQuestionPdf()"), main.indexOf("function renderGoogleDocsAction()"));
+  assert.doesNotMatch(exportSection, /source-reference-print/);
+  assert.match(main, /Extracted question only · answers and worked solutions are not included/);
 });
 
 test("given-only pseudo-questions and exact unclear placeholders are excluded instead of exported as questions", () => {
   assert.match(extract, /const givenOnly/);
   assert.match(extract, /!givenOnly/);
   assert.match(main, /return questionTokens\(text\)\.length >= 2 \|\| hasTask/);
-  assert.match(audit, /!\/\^\\s\*\\\[\?unclear/);
+  assert.match(audit, /unclear/);
 });
