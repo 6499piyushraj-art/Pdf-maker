@@ -211,3 +211,18 @@ test("exports remain blocked until pages with zero detected questions are visual
   assert.match(main, /if \(hasUnreviewedEmptyPages\(\)\)/);
   assert.match(main, /!page\.sourcePreview/);
 });
+
+test("question banner alone does not authorize inventing a missing prompt from solution work", () => {
+  assert.match(extract, /a banner or question number alone is not the question statement/i);
+  assert.match(extract, /Return an empty questions array when no actual problem statement is visible/i);
+  assert.match(extract, /never reconstruct a missing prompt from a derivation/i);
+  assert.match(audit, /A banner alone is not a question stem/i);
+  assert.match(audit, /Do not reconstruct a missing prompt from handwritten working/i);
+});
+
+test("loaded source previews stay collapsed on normal question cards but open for empty-page verification", () => {
+  const sourceFunction = main.slice(main.indexOf("function renderSourceReference"), main.indexOf("function renderEmptyPageReview"));
+  assert.match(sourceFunction, /page\.questions === 0 \? " open" : ""/);
+  assert.doesNotMatch(sourceFunction, /<details class="source-reference" open>/);
+  assert.match(sourceFunction, /loading="lazy"/);
+});

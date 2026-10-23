@@ -460,7 +460,8 @@ function renderSourceReference(fileName: string, pageNumber: number): string {
   const page = state.pages.find(item => item.fileName === fileName && item.pageNumber === pageNumber);
   if (!page) return "";
   if (page.sourcePreview) {
-    return '<details class="source-reference" open><summary>Original PDF page · compare source</summary><a href="' + escapeHtml(page.sourcePreview) + '" target="_blank" rel="noreferrer"><img src="' + escapeHtml(page.sourcePreview) + '" alt="Original source PDF page ' + pageNumber + '" loading="lazy"></a><small>Rendered from your original PDF. Compare the equation, labels and diagram before trusting the extracted text.</small></details>';
+    const defaultOpen = page.questions === 0 ? " open" : "";
+    return '<details class="source-reference' + defaultOpen + '"><summary>Original PDF page · compare source</summary><a href="' + escapeHtml(page.sourcePreview) + '" target="_blank" rel="noreferrer"><img src="' + escapeHtml(page.sourcePreview) + '" alt="Original source PDF page ' + pageNumber + '" loading="lazy"></a><small>Rendered from your original PDF. Compare the equation, labels and diagram before trusting the extracted text.</small></details>';
   }
   const canLoad = state.files.some(file => file.name === fileName);
   const buttonLabel = page.sourceLoading ? "Rendering original page…" : "Load original page image";
