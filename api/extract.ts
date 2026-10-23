@@ -53,6 +53,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     "IMPORTANT FOR LECTURE-SLIDE PDFs: if printed content is headed by a red or colored banner such as 'Question [JEE Mains-2023]', it IS a question and must be transcribed, even if a teacher has handwritten a solution over or beside it. Extract the printed problem statement, subparts, and printed options. Do not mistake handwritten calculations, circled answers or solution annotations for the question text.",
     "Extract EVERY actually visible exam/practice question: all numbered items (1., Q1, 1)), subparts (a), (b), (i), (ii), assertion/reason, matching, fill-in-the-blanks, true/false, numerical questions, passage-based questions, and questions that depend on a table, graph, circuit or diagram. A question does NOT need a question mark. Inspect both columns, the margins and the bottom of the page; never stop after the first question.",
     "Use selectable PDF text as a second source and reconcile it against the image; it can be incomplete, scrambled or missing entirely. Preserve visible wording, subpart labels, math symbols, superscripts/subscripts when readable, units, values, original language/script (including Hindi), and option order. Do not paraphrase, shorten, combine separate numbered questions, or skip a question because its wording is incomplete.",
+    "NO-INVENTION RULE: questionText must be grounded in wording actually visible in the source page. Never infer a new task from a worked solution, derivation, formula, diagram, or the fact that a banner says QUESTION 1. If a page only shows Given data, intermediate equations, or a teacher solution and the requested task is not visible, return an empty questions array for that page. Do not invent a generic task such as Find the centre of mass unless the task is supported by the source.",
+    "DUPLICATE RULE: the same source question seen in multiple crops must appear only once. Do not return one version from the full page and another paraphrased version from a crop.",
+    "MATH FIDELITY: never repair or guess a damaged equation from context. Copy visible math when readable; preserve uncertain pieces as [unclear] and set reviewRequired=true. Broken notation must not be output as verified.",
     "Return only question statements, their subparts, options and necessary diagram descriptions. NEVER include answers, worked solutions, hints, explanations or answer-key text even when printed nearby. Ignore solution paragraphs. If part of a question is visibly present but unreadable, retain all legible text, mark the unreadable span [unclear], and require review instead of dropping the question or guessing.",
     "For any required diagram, geometry figure, graph or table, describe visible labels, shapes, axes, arrows and markings in diagramDescription without inventing details. For a continued question, capture the visible portion and flag it for review. Return an empty questions array ONLY when the page truly has no visible question; never create a question from headings, instructions or solution text.",
     "Return JSON only: {\"questions\":[{\"questionText\":\"...\",\"options\":[\"(A) ...\"],\"diagramDescription\":\"\",\"confidence\":0.0,\"reviewRequired\":false,\"reviewNotes\":[]}]}",
@@ -82,7 +85,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const reviewRequired = shouldFlagForReview({ explicitReview: q?.reviewRequired, confidence, questionText, options, diagramDescription });
       if (!questionText) reviewNotes.push("Question text is missing or unreadable.");
       return { questionText, options, diagramDescription, confidence, reviewRequired: reviewRequired || !questionText, reviewNotes };
-    }).filter(q => q.questionText);
+    }).filter(q => {
+      const givenOnly = /^\s*(?:question\s*(?:no\.?\s*)?\d+\s*[:.\-]?\s*)?given\b/i.test(q.questionText)
+        && !/\b(find|calculate|determine|compute|evaluate|solve|prove|show|obtain|select|choose|identify|derive)\b/i.test(q.questionText);
+      return Boolean(q.questionText) && !/^\s*\[?unclear\]?\s*$/i.test(q.questionText) && !givenOnly;
+    });
     return json(res, 200, { fileName, pageNumber, questions, warning: questions.length === 40 ? "Question count was capped at 40 for one page." : undefined });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Gemini extraction failed.";
