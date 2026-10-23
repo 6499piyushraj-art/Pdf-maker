@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { ThinkingLevel } from "@google/genai";
 import { protectedApiError } from "../src/server/auth";
 import { hasGeminiApiKey, withGeminiApiKeyFailover } from "../src/server/gemini";
 import { shouldFlagForReview } from "../src/lib/question-quality";
@@ -68,7 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const result = await withGeminiApiKeyFailover((ai) => ai.models.generateContent({
       model: process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash",
       contents: [{ role: "user", parts }],
-      config: { responseMimeType: "application/json", thinkingConfig: { thinkingLevel: "high" }, maxOutputTokens: 16384 }
+      config: { responseMimeType: "application/json", thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH }, maxOutputTokens: 16384 }
     }));
     const parsed = parseModelJson(result.text || "");
     if (!parsed || !Array.isArray(parsed.questions)) return json(res, 502, { error: "Gemini response did not contain a questions array." });
