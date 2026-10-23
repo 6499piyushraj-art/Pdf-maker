@@ -9,11 +9,26 @@ type Question = {
   options: string[]; diagramDescription: string; confidence: number;
   reviewRequired: boolean; reviewNotes: string[];
 };
-type PageRecord = { fileName: string; pageNumber: number; text: string; status: "done" | "failed"; error?: string; questions: number };
+type PageRecord = { fileName: string; pageNumber: number; text: string; status: "done" | "failed"; error?: string; questions: number; sourcePreview?: string };
 type AppState = { authenticated: boolean; configured: boolean; apiUnavailable: boolean; busy: boolean; files: File[]; questions: Question[]; pages: PageRecord[]; message: string; search: string; activeTab: "questions" | "pages"; googleDocsConfigured: boolean; googleDocsConnected: boolean };
 const state: AppState = { authenticated: false, configured: false, apiUnavailable: false, busy: false, files: [], questions: [], pages: [], message: "", search: "", activeTab: "questions", googleDocsConfigured: false, googleDocsConnected: false };
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+function makeSourcePreview(canvas: HTMLCanvasElement): string {
+  // Preserve a compact copy of each original page for verification and exports.
+  const maxDimension = 1500;
+  const scale = Math.min(1, maxDimension / Math.max(canvas.width, canvas.height));
+  const preview = document.createElement("canvas");
+  preview.width = Math.max(1, Math.round(canvas.width * scale));
+  preview.height = Math.max(1, Math.round(canvas.height * scale));
+  const context = preview.getContext("2d");
+  if (!context) throw new Error("Could not preserve the original PDF page preview.");
+  context.drawImage(canvas, 0, 0, preview.width, preview.height);
+  const dataUrl = preview.toDataURL("image/jpeg", 0.66);
+  preview.width = 0; preview.height = 0;
+  return dataUrl;
+}
+
 function makePageImagePayload(canvas: HTMLCanvasElement): { imageData: string; imageDataSegments: string[] } {
   // Keep the full page as visual context and add two overlapping focused crops.
   // Landscape lecture slides are usually column-based, so crop left/right; portrait pages crop top/bottom.
@@ -68,7 +83,7 @@ async function extractPageWithFocusedFallback(input: {
   imageDataSegments: string[];
 }): Promise<any> {
   const initial = await jsonPost("/api/extract", { ...input });
-  const initialQuestions: any[] = Array.isArray(initial?.questions) ? initial.questions : [];
+  const initialQuestions: any[] = deduplicateCandidates(Array.isArray(initial?.questions) ? initial.questions : []);
   const imageOnlyPage = input.pageText.trim().length < 80;
   const hasQuestionCue = /\b(?:question|jee|mains|advanced|mcq|assertion|reason|exercise|practice|calculate|determine|find|solve|evaluate|which|what|how|prove|show that)\b|\bQ\s*\.?\s*\d+\b/i.test(input.pageText);
   // Text extraction can contain titles/teacher notes while missing the printed question itself.
@@ -77,20 +92,7 @@ async function extractPageWithFocusedFallback(input: {
   if (!shouldRetryFocused || input.imageDataSegments.length < 2 || initialQuestions.length > 5) return initial;
 
   const candidateSets: any[][] = [initialQuestions];
-  const collectUnique = (sets: any[][]): any[] => {
-    const seen = new Set<string>();
-    const merged: any[] = [];
-    for (const set of sets) {
-      for (const question of set) {
-        const text = String(question?.questionText || "").trim();
-        const key = questionKey(text);
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
-        merged.push(question);
-      }
-    }
-    return merged;
-  };
+  const collectUnique = (sets: any[][]): any[] => deduplicateCandidates(sets.flat());
 
   // Pass 2: reread overlapping crops without the full-slide distraction.
   try {
@@ -193,6 +195,7 @@ function render() {
     <label class="field-label">Question</label><textarea data-edit="questionText" data-id="${q.id}" rows="2">${escapeHtml(q.questionText)}</textarea>
     ${q.options.length?'<label class="field-label">Options</label>'+q.options.map((o,j)=>`<input class="option-edit" data-option="${j}" data-id="${q.id}" value="${escapeHtml(o)}">`).join(""):""}
     ${q.diagramDescription?'<p class="diagram-note">Diagram: '+escapeHtml(q.diagramDescription)+'</p>':""}
+    ${renderSourceReference(q.fileName, q.pageNumber)}
     ${q.reviewNotes.length?'<p class="review-note">'+escapeHtml(q.reviewNotes.join(" · "))+'</p>':""}
     <div class="card-footer"><span>Confidence ${Math.round(q.confidence*100)}%</span><label class="review-toggle"><input type="checkbox" data-review="${q.id}" ${q.reviewRequired?"checked":""}> Needs manual review</label></div></article>`).join("") : '<div class="empty-state"><div>✧</div><h3>No questions yet</h3><p>Choose your PDFs above, then start extraction.</p></div>') : (state.pages.length ? state.pages.map(p=>`<div class="page-row"><span class="status-dot ${p.status}"></span><div><strong>${escapeHtml(p.fileName)} · page ${p.pageNumber}</strong><small>${p.status==="done"?(p.questions===0?"No questions detected — manually verify this page; faint/scanned questions can be missed":p.questions+" question(s) extracted"):escapeHtml(p.error||"Processing failed")}</small></div>${(p.status==="failed"||p.questions===0)?'<button class="retry secondary" data-file="'+escapeHtml(p.fileName)+'" data-page="'+p.pageNumber+'">'+(p.status==="failed"?"Retry page":"Re-scan page")+'</button>':""}</div>`).join(""):'<div class="empty-state"><h3>No pages processed yet</h3><p>Your page-by-page progress will appear here.</p></div>')}
   </section><footer><span>PaperPilot AI</span><span>AI extraction can make mistakes. Always verify important answers.</span></footer></main>`;
@@ -281,6 +284,7 @@ async function processFiles() {
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
         state.message = `Reading ${file.name} · page ${pageNumber} of ${pdf.numPages}`; render();
         let pageText = "";
+        let sourcePreview = "";
         try {
           const page = await pdf.getPage(pageNumber);
           const textContent = await page.getTextContent();
@@ -292,9 +296,10 @@ async function processFiles() {
           const context = canvas.getContext("2d");
           if (!context) throw new Error("Could not render the PDF page.");
           await page.render({ canvas, canvasContext: context, viewport }).promise;
+          sourcePreview = makeSourcePreview(canvas);
           const { imageData, imageDataSegments } = makePageImagePayload(canvas);
           const result = await extractPageWithFocusedFallback({ fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData, imageDataSegments });
-          const newQuestions: Question[] = (result.questions || []).map((q: any, i: number) => ({
+          const newQuestions: Question[] = deduplicateCandidates(Array.isArray(result.questions) ? result.questions : []).map((q: any) => ({
             id: crypto.randomUUID(), fileName: file.name, pageNumber,
             questionText: String(q.questionText || ""), options: Array.isArray(q.options) ? q.options.map(String) : [],
 diagramDescription: String(q.diagramDescription || ""),
@@ -313,9 +318,9 @@ diagramDescription: String(q.diagramDescription || ""),
           }
           mergeRecoveredQuestions(newQuestions, audit?.missingQuestions || [], file.name, pageNumber);
           state.questions.push(...newQuestions);
-          state.pages.push({ fileName: file.name, pageNumber, text: pageText, status: "done", questions: newQuestions.length });
+          state.pages.push({ fileName: file.name, pageNumber, text: pageText, status: "done", questions: newQuestions.length, sourcePreview });
         } catch (error) {
-          state.pages.push({ fileName: file.name, pageNumber, text: pageText, status: "failed", error: error instanceof Error ? error.message : "Unknown page error", questions: 0 });
+          state.pages.push({ fileName: file.name, pageNumber, text: pageText, status: "failed", error: error instanceof Error ? error.message : "Unknown page error", questions: 0, sourcePreview });
         }
         render();
       }
@@ -350,9 +355,10 @@ async function retryPage(fileName: string, pageNumber: number) {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Could not render the PDF page.");
     await page.render({ canvas, canvasContext: context, viewport }).promise;
+    const sourcePreview = makeSourcePreview(canvas);
     const { imageData, imageDataSegments } = makePageImagePayload(canvas);
     const result = await extractPageWithFocusedFallback({ fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData, imageDataSegments });
-    const questions: Question[] = (result.questions || []).map((q: any) => ({
+    const questions: Question[] = deduplicateCandidates(Array.isArray(result.questions) ? result.questions : []).map((q: any) => ({
       id: crypto.randomUUID(), fileName: file.name, pageNumber,
       questionText: String(q.questionText || ""), options: Array.isArray(q.options) ? q.options.map(String) : [],
 diagramDescription: String(q.diagramDescription || ""),
@@ -372,7 +378,7 @@ diagramDescription: String(q.diagramDescription || ""),
     state.questions = state.questions.filter(q => !(q.fileName === file.name && q.pageNumber === pageNumber));
     state.questions.push(...questions);
     const pageIndex = state.pages.findIndex(p => p.fileName === file.name && p.pageNumber === pageNumber);
-    const record: PageRecord = { fileName: file.name, pageNumber, text: pageText, status: "done", questions: questions.length };
+    const record: PageRecord = { fileName: file.name, pageNumber, text: pageText, status: "done", questions: questions.length, sourcePreview };
     if (pageIndex >= 0) state.pages[pageIndex] = record; else state.pages.push(record);
     state.message = `Retry complete: ${questions.length} question(s) recovered from page ${pageNumber}.`;
     state.activeTab = "questions";
@@ -410,22 +416,91 @@ function renderPdfExportAction(): string {
 }
 
 function questionKey(value: string): string {
-  return value.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
+  return value.normalize("NFKC").toLocaleLowerCase()
+    .replace(/\bcent(?:er|re)\s+of\s+mass\b/g, " centerofmass ")
+    .replace(/\bcom\b/g, " centerofmass ")
+    .replace(/\bcentre\b/g, "center")
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
+}
+const QUESTION_STOP_WORDS = new Set(["a","an","the","and","or","of","for","to","in","on","at","as","by","with","from","is","are","be","being","shown","figure","given","this","that","these","those","it","its","their","then","when","where","which","what","how","do","does","has","have","will","would","can","could","should","into","onto","than","over","under","there","each","all"]);
+function questionTokens(value: string): string[] {
+  return [...new Set(questionKey(value.replace(/\[unclear\]/gi, " ")).split(/\s+/).filter(token => token && !QUESTION_STOP_WORDS.has(token)))];
+}
+function isPlausibleQuestionText(value: string): boolean {
+  const text = value.trim().replace(/^\s*question\s*(?:no\.?\s*)?\d+\s*[:.\-]?/i, "").trim();
+  if (!text || /^\[?unclear\]?$/i.test(text)) return false;
+  const hasTask = /\b(find|calculate|determine|compute|evaluate|solve|prove|show|obtain|select|choose|identify|state|derive|lies|would|which|what|how|is|are|equals|equal to|remainder|coefficient)\b/i.test(text);
+  if (/^\s*(?:given|solution|working|therefore|hence|let us|we know|diagram notes?)\b/i.test(text) && !hasTask) return false;
+  return questionTokens(text).length >= 2 || hasTask;
+}
+function explicitQuestionNumber(value: string): string | null {
+  const match = value.match(/\b(?:question|ques\.?|q)\s*#?\s*(\d{1,3})\b/i);
+  return match?.[1] || null;
+}
+function areDuplicateCandidates(a: any, b: any): boolean {
+  const aText = String(a?.questionText || "").trim();
+  const bText = String(b?.questionText || "").trim();
+  const aNumber = explicitQuestionNumber(aText);
+  const bNumber = explicitQuestionNumber(bText);
+  if (aNumber && bNumber && aNumber !== bNumber) return false;
+  const aTokens = questionTokens(aText);
+  const bTokens = questionTokens(bText);
+  if (!aTokens.length || !bTokens.length) return false;
+  const aSet = new Set(aTokens);
+  const bSet = new Set(bTokens);
+  const overlap = [...aSet].filter(token => bSet.has(token)).length;
+  const shorterCoverage = overlap / Math.min(aSet.size, bSet.size);
+  return (overlap >= 4 && shorterCoverage >= 0.62) || (overlap >= 3 && shorterCoverage >= 0.9 && Math.min(aSet.size, bSet.size) <= 5);
+}
+function questionQualityScore(question: any): number {
+  const text = String(question?.questionText || "").trim();
+  let score = new Set(questionTokens(text)).size;
+  score += Array.isArray(question?.options) ? Math.min(question.options.length, 6) * 1.5 : 0;
+  if (/\b(find|calculate|determine|compute|evaluate|solve|prove|show|obtain|which|what|how)\b/i.test(text)) score += 2;
+  score -= (text.match(/\[unclear\]/gi) || []).length * 4;
+  if (/\brac\s*\{/i.test(text)) score -= 1;
+  if (/^\s*(?:given|solution|working|therefore|hence)\b/i.test(text) && !isPlausibleQuestionText(text)) score -= 20;
+  return score;
+}
+function addCandidateDeduplicated(list: any[], candidate: any): void {
+  const text = String(candidate?.questionText || "").trim();
+  if (!isPlausibleQuestionText(text)) return;
+  const index = list.findIndex(existing => areDuplicateCandidates(existing, candidate));
+  if (index < 0) { list.push(candidate); return; }
+  const existing = list[index];
+  const existingText = String(existing?.questionText || "").trim();
+  const candidateText = text;
+  const notes = [...(Array.isArray(existing?.reviewNotes) ? existing.reviewNotes : []), ...(Array.isArray(candidate?.reviewNotes) ? candidate.reviewNotes : [])];
+  const options = (Array.isArray(candidate?.options) && candidate.options.length > (Array.isArray(existing?.options) ? existing.options.length : 0)) ? candidate.options : existing.options;
+  const diagram = String(candidate?.diagramDescription || "").length > String(existing?.diagramDescription || "").length ? candidate.diagramDescription : existing.diagramDescription;
+  if (questionQualityScore(candidate) > questionQualityScore(existing)) existing.questionText = candidateText;
+  if (Array.isArray(options)) existing.options = options;
+  if (diagram) existing.diagramDescription = diagram;
+  existing.reviewRequired = Boolean(existing?.reviewRequired || candidate?.reviewRequired || questionKey(existingText) !== questionKey(candidateText));
+  existing.confidence = Math.min(typeof existing?.confidence === "number" ? existing.confidence : 0.5, typeof candidate?.confidence === "number" ? candidate.confidence : 0.5);
+  existing.reviewNotes = [...new Set([...notes.map(String), "Near-duplicate AI candidates were merged; verify the retained wording against the original PDF page."])];
+}
+function deduplicateCandidates(values: any[]): any[] {
+  const result: any[] = [];
+  for (const candidate of values) addCandidateDeduplicated(result, candidate);
+  return result;
+}
+function renderSourceReference(fileName: string, pageNumber: number): string {
+  const preview = state.pages.find(page => page.fileName === fileName && page.pageNumber === pageNumber)?.sourcePreview;
+  if (!preview) return "";
+  return '<details class="source-reference"><summary>View original PDF page</summary><a href="' + escapeHtml(preview) + '" target="_blank" rel="noreferrer"><img src="' + escapeHtml(preview) + '" alt="Original source PDF page ' + pageNumber + '" loading="lazy"></a><small>Open the image in a new tab to zoom and compare the original diagram or equation.</small></details>';
 }
 function mergeRecoveredQuestions(questions: Question[], rawMissing: unknown, fileName: string, pageNumber: number): void {
   if (!Array.isArray(rawMissing)) return;
-  for (const candidate of rawMissing.slice(0, 20) as any[]) {
+  for (const candidate of deduplicateCandidates(rawMissing.slice(0, 20) as any[])) {
     const questionText = String(candidate?.questionText || "").trim();
-    const key = questionKey(questionText);
-    if (!key || questions.some(existing => questionKey(existing.questionText) === key)) continue;
-    const reviewNotes = Array.isArray(candidate?.reviewNotes) ? candidate.reviewNotes.map(String) : [];
-    questions.push({
+    addCandidateDeduplicated(questions, {
       id: crypto.randomUUID(), fileName, pageNumber, questionText,
       options: Array.isArray(candidate?.options) ? candidate.options.map(String).slice(0, 12) : [],
       diagramDescription: String(candidate?.diagramDescription || ""),
       confidence: Number.isFinite(candidate?.confidence) ? Math.max(0, Math.min(1, candidate.confidence)) : 0.5,
       reviewRequired: true,
-      reviewNotes: [...reviewNotes, "Recovered by the second-pass completeness check. Verify against the original PDF."]
+      reviewNotes: [...(Array.isArray(candidate?.reviewNotes) ? candidate.reviewNotes.map(String) : []), "Recovered by the second-pass completeness check. Verify against the original PDF."]
     });
   }
 }
@@ -456,11 +531,13 @@ function downloadQuestionPdf() {
     const review = q.reviewRequired
       ? '<p class="review-note">Please verify this question against the original PDF.</p>'
       : "";
-    return '<section class="question-page"><header><span>PaperPilot AI · Question Bank</span><span>Question ' + (index + 1) + " of " + state.questions.length + '</span></header><h1>Question ' + (index + 1) + '</h1><p class="source">Source: ' + escapeHtml(q.fileName) + " · original PDF page " + q.pageNumber + '</p><div class="stem">' + questionText + '</div>' + (options ? '<section class="options"><h2>Options</h2>' + options + '</section>' : "") + diagram + review + '<footer>Extracted question only · answers and worked solutions are not included</footer></section>';
+    const sourcePreview = state.pages.find(page => page.fileName === q.fileName && page.pageNumber === q.pageNumber)?.sourcePreview;
+    const sourceReference = sourcePreview ? '<section class="source-reference-print"><h2>Original source page · verification only</h2><a href="' + sourcePreview + '" target="_blank" rel="noreferrer"><img src="' + sourcePreview + '" alt="Original PDF page ' + q.pageNumber + '"></a><p>Use this preserved source page to verify handwritten equations and diagrams.</p></section>' : "";
+    return '<section class="question-page"><header><span>PaperPilot AI · Question Bank</span><span>Question ' + (index + 1) + " of " + state.questions.length + '</span></header><h1>Question ' + (index + 1) + '</h1><p class="source">Source: ' + escapeHtml(q.fileName) + " · original PDF page " + q.pageNumber + '</p><div class="stem">' + questionText + '</div>' + (options ? '<section class="options"><h2>Options</h2>' + options + '</section>' : "") + diagram + sourceReference + review + '<footer>Extracted question only · answers and worked solutions are not included</footer></section>';
   }).join("");
 
   const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PaperPilot-Question-Bank</title><style>' +
-    '@page{size:A4;margin:17mm 16mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#172033;font-size:12pt;line-height:1.55;margin:0}.question-page{position:relative;break-after:page;page-break-after:always;break-inside:auto;min-height:250mm;padding-bottom:15mm}.question-page:last-child{break-after:auto;page-break-after:auto}header{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #d8dfeb;padding-bottom:9px;color:#536179;font-size:9pt}h1{font-size:21pt;line-height:1.2;margin:24px 0 8px;color:#111827}.source{font-size:9pt;color:#5b6578;margin:0 0 22px;overflow-wrap:anywhere}.stem{font-size:12pt;white-space:normal;overflow-wrap:anywhere}.options{margin-top:24px}.options h2,.diagram h2{font-size:11pt;margin:0 0 9px}.option{margin:8px 0 8px 12px;white-space:normal;overflow-wrap:anywhere}.diagram{margin-top:22px;padding:12px;border:1px solid #d9e0ea;border-radius:8px;break-inside:avoid}.diagram p{margin:0;overflow-wrap:anywhere}.review-note{margin-top:22px;padding:8px 10px;border-left:3px solid #b7791f;color:#714d11;font-size:9pt}.question-page footer{position:absolute;bottom:0;left:0;right:0;border-top:1px solid #e1e5ec;padding-top:7px;color:#788195;font-size:8pt}@media screen{body{background:#eef1f7;padding:18px}.question-page{background:white;max-width:800px;margin:0 auto 18px;padding:28px;box-shadow:0 4px 24px #17203318;min-height:980px}.question-page footer{left:28px;right:28px;bottom:28px}}@media print{.question-page{min-height:0}.question-page footer{position:fixed}}' +
+    '@page{size:A4;margin:17mm 16mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#172033;font-size:12pt;line-height:1.55;margin:0}.question-page{position:relative;break-after:page;page-break-after:always;break-inside:auto;min-height:250mm;padding-bottom:15mm}.question-page:last-child{break-after:auto;page-break-after:auto}header{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #d8dfeb;padding-bottom:9px;color:#536179;font-size:9pt}h1{font-size:21pt;line-height:1.2;margin:24px 0 8px;color:#111827}.source{font-size:9pt;color:#5b6578;margin:0 0 22px;overflow-wrap:anywhere}.stem{font-size:12pt;white-space:normal;overflow-wrap:anywhere}.options{margin-top:24px}.options h2,.diagram h2{font-size:11pt;margin:0 0 9px}.option{margin:8px 0 8px 12px;white-space:normal;overflow-wrap:anywhere}.diagram{margin-top:22px;padding:12px;border:1px solid #d9e0ea;border-radius:8px;break-inside:avoid}.diagram p{margin:0;overflow-wrap:anywhere}.source-reference-print{margin-top:14px;break-inside:avoid}.source-reference-print h2{font-size:10pt;margin:0 0 5px}.source-reference-print img{display:block;max-width:100%;max-height:70mm;object-fit:contain;margin:0 auto}.source-reference-print p{font-size:8pt;color:#64748b;margin:4px 0}.review-note{margin-top:22px;padding:8px 10px;border-left:3px solid #b7791f;color:#714d11;font-size:9pt}.question-page footer{position:absolute;bottom:0;left:0;right:0;border-top:1px solid #e1e5ec;padding-top:7px;color:#788195;font-size:8pt}@media screen{body{background:#eef1f7;padding:18px}.question-page{background:white;max-width:800px;margin:0 auto 18px;padding:28px;box-shadow:0 4px 24px #17203318;min-height:980px}.question-page footer{left:28px;right:28px;bottom:28px}}@media print{.question-page{min-height:0}.question-page footer{position:fixed}}' +
     '</style></head><body><main>' + pages + '</main></body></html>';
 
   printWindow.document.open();
