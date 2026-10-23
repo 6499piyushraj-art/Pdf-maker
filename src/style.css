@@ -16,6 +16,8 @@
 .source-reference{margin-top:12px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#f8faf7}.source-reference summary{cursor:pointer;font-size:11px;font-weight:700;padding:10px 12px;color:var(--green)}.source-reference img{display:block;width:100%;max-height:620px;object-fit:contain;background:#111}.source-reference small{display:block;padding:8px 12px;color:#64748b;font-size:10px;line-height:1.4}
 
 
+.diagram-image{margin:10px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#f9fbf9}.diagram-image summary{cursor:pointer;font-size:11px;font-weight:700;padding:9px 12px;color:var(--green)}.diagram-image img{display:block;width:100%;max-height:340px;object-fit:contain;background:#111}
+
 /* Completeness-review panel for pages with no detected questions. */
 .empty-review-panel{margin:16px 0;padding:16px;border:1px solid var(--line);border-radius:12px;background:#fbfcfa}
 .empty-review-panel h3{font-size:14px;margin:0 0 6px;color:var(--green)}

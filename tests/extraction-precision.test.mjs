@@ -7,6 +7,7 @@ const extract = await readFile(new URL("../api/extract.ts", import.meta.url), "u
 const audit = await readFile(new URL("../api/audit.ts", import.meta.url), "utf8");
 const dedupe = await import("../src/lib/question-dedupe.ts");
 const dedupeSource = await readFile(new URL("../src/lib/question-dedupe.ts", import.meta.url), "utf8");
+const diagramRegionSource = await readFile(new URL("../src/lib/diagram-region.ts", import.meta.url), "utf8");
 
 test("PDF pages are sent to Gemini at higher resolution and quality", () => {
   assert.equal((main.match(/Math\.min\(2, 2300 \/ baseViewport\.width\)/g) || []).length, 2);
@@ -228,4 +229,19 @@ test("loaded source previews stay collapsed on normal question cards but open fo
   assert.match(sourceFunction, /page\.questions === 0 \? " open" : ""/);
   assert.doesNotMatch(sourceFunction, /<details class="source-reference" open>/);
   assert.match(sourceFunction, /loading="lazy"/);
+});
+
+test("safe diagram regions can be rendered as tight figure crops for clean PDF exports", () => {
+  assert.match(extract, /DIAGRAM REGION RULE/);
+  assert.match(audit, /DIAGRAM REGION RULE/);
+  assert.match(main, /function makeDiagramCropImage/);
+  assert.match(main, /cropAreaRatio > 0\\.45/);
+  assert.match(main, /function attachDiagramCrops/);
+  assert.match(main, /diagram-image-print/);
+  assert.match(main, /renderDiagramCrop\\(q\\)/);
+  assert.match(main, /attachDiagramCrops\\(newQuestions, canvas\\)/);
+  assert.match(main, /attachDiagramCrops\\(questions, canvas\\)/);
+  assert.match(dedupeSource, /diagramRegion/);
+  assert.match(diagramRegionSource, /normalizeDiagramRegion/);
+  assert.match(extract, /never use the whole slide as a figure crop/i);
 });
