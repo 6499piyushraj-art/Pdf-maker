@@ -343,7 +343,7 @@ async function retryPage(fileName: string, pageNumber: number) {
     const textContent = await page.getTextContent();
     const pageText = textContent.items.map((item) => "str" in item ? item.str + ("hasEOL" in item && item.hasEOL ? "\n" : " ") : "").join("").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
     const baseViewport = page.getViewport({ scale: 1 });
-    const viewport = page.getViewport({ scale: Math.min(2, 2560 / baseViewport.width) });
+    const viewport = page.getViewport({ scale: Math.min(2, 2300 / baseViewport.width) });
     const canvas = document.createElement("canvas");
     canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
     const context = canvas.getContext("2d");
