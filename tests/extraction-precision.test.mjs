@@ -102,3 +102,17 @@ test("image-only pages with partial results receive focused retries instead of s
 test("question deduplication preserves Hindi and other non-Latin scripts", () => {
   assert.match(main, /replace\(\/\[\^\\p\{L\}\\p\{N\}\]\+\/gu, " "\)/);
 });
+
+test("question slides with selectable text still get focused completeness retries", () => {
+  assert.ok(main.includes("const shouldRetryFocused = imageOnlyPage || initialQuestions.length <= 1 || (initialQuestions.length <= 2 && hasQuestionCue);"));
+  assert.ok(main.includes("collectUnique(candidateSets).length <= 2 && (imageOnlyPage || hasQuestionCue || initialQuestions.length === 0)"));
+  assert.match(main, /Focused completeness re-scan ran; manually compare this page with the source PDF for omissions/);
+});
+
+test("Gemini 3.8 Flash uses high thinking and avoids unsupported sampling settings", () => {
+  for (const source of [extract, audit]) {
+    assert.ok(source.includes('thinkingConfig: { thinkingLevel: "HIGH" }'));
+    assert.ok(source.includes("maxOutputTokens: 16384"));
+    assert.doesNotMatch(source, /temperature\s*:/);
+  }
+});
