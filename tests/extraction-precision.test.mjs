@@ -116,3 +116,31 @@ test("Gemini 3.8 Flash uses high thinking and avoids unsupported sampling settin
     assert.doesNotMatch(source, /temperature\s*:/);
   }
 });
+
+
+test("semantic deduplication merges paraphrased model candidates and rejects weak placeholders", () => {
+  assert.match(main, /function areDuplicateCandidates/);
+  assert.match(main, /shorterCoverage >= 0\.62/);
+  assert.match(main, /function isPlausibleQuestionText/);
+  assert.match(main, /if \(!isPlausibleQuestionText\(text\)\) return/);
+  assert.match(main, /Near-duplicate AI candidates were merged/);
+  assert.match(extract, /NO-INVENTION RULE/);
+  assert.match(extract, /DUPLICATE RULE/);
+  assert.match(audit, /SEMANTIC DEDUPLICATION RULE/);
+});
+
+test("the original source page is preserved for review and included in question-bank PDF exports", () => {
+  assert.match(main, /function makeSourcePreview/);
+  assert.match(main, /sourcePreview\?: string/);
+  assert.match(main, /function renderSourceReference/);
+  assert.match(main, /renderSourceReference\(q\.fileName, q\.pageNumber\)/);
+  assert.match(main, /source-reference-print/);
+  assert.match(main, /Original source page · verification only/);
+});
+
+test("given-only pseudo-questions and exact unclear placeholders are excluded instead of exported as questions", () => {
+  assert.match(extract, /const givenOnly/);
+  assert.match(extract, /!givenOnly/);
+  assert.match(main, /return questionTokens\(text\)\.length >= 2 \|\| hasTask/);
+  assert.match(audit, /!\/\^\\s\*\\\[\?unclear/);
+});
