@@ -111,7 +111,7 @@ test("question slides with selectable text still get focused completeness retrie
 
 test("Gemini 3.8 Flash uses high thinking and avoids unsupported sampling settings", () => {
   for (const source of [extract, audit]) {
-    assert.ok(source.includes('thinkingConfig: { thinkingLevel: "HIGH" }'));
+    assert.ok(source.includes('thinkingConfig: { thinkingLevel: "high" }'));
     assert.ok(source.includes("maxOutputTokens: 16384"));
     assert.doesNotMatch(source, /temperature\s*:/);
   }
