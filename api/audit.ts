@@ -32,7 +32,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const imageData = typeof body.imageData === "string" ? body.imageData : "";
   const imageDataSegments = Array.isArray(body.imageDataSegments) ? body.imageDataSegments.filter((v): v is string => typeof v === "string") : [];
   const imageBytesTotal = imageData.length + imageDataSegments.reduce((sum, value) => sum + value.length, 0);
-  if (imageDataSegments.length > 2 || imageData.length > 2000000 || imageDataSegments.some(value => value.length > 1500000) || imageBytesTotal > 4400000) return json(res, 413, { error: "Focused page images are too large. Try a lower-resolution PDF." });
+  if (imageDataSegments.length > 2 || imageData.length > 1750000 || imageDataSegments.some(value => value.length > 1250000) || imageBytesTotal > 3650000) return json(res, 413, { error: "Focused page images are too large. Try a lower-resolution PDF." });
   if (!Number.isInteger(pageNumber) || pageNumber < 1) return json(res, 400, { error: "Invalid page number." });
   if (body.questions.length > 40) return json(res, 413, { error: "Too many questions for one page audit." });
   if ([imageData, ...imageDataSegments].some(value => value && !/^[A-Za-z0-9+/=]+$/.test(value))) return json(res, 400, { error: "Rendered page image data is invalid." });
