@@ -443,6 +443,7 @@ function areDuplicateCandidates(a: any, b: any): boolean {
   const aNumber = explicitQuestionNumber(aText);
   const bNumber = explicitQuestionNumber(bText);
   if (aNumber && bNumber && aNumber !== bNumber) return false;
+  if (questionKey(aText) === questionKey(bText)) return true;
   const aTokens = questionTokens(aText);
   const bTokens = questionTokens(bText);
   if (!aTokens.length || !bTokens.length) return false;
@@ -450,7 +451,7 @@ function areDuplicateCandidates(a: any, b: any): boolean {
   const bSet = new Set(bTokens);
   const overlap = [...aSet].filter(token => bSet.has(token)).length;
   const shorterCoverage = overlap / Math.min(aSet.size, bSet.size);
-  return (overlap >= 4 && shorterCoverage >= 0.62) || (overlap >= 3 && shorterCoverage >= 0.9 && Math.min(aSet.size, bSet.size) <= 5);
+  return (overlap >= 4 && shorterCoverage >= 0.8) || (overlap >= 3 && shorterCoverage >= 0.92 && Math.min(aSet.size, bSet.size) <= 5);
 }
 function questionQualityScore(question: any): number {
   const text = String(question?.questionText || "").trim();

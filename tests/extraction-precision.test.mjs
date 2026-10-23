@@ -27,7 +27,9 @@ test("question extractor scans all provided views and retains exact question-onl
 
 test("empty model entries do not become fabricated placeholder questions", () => {
   assert.match(extract, /return \{ questionText, options, diagramDescription/);
-  assert.match(extract, /\.filter\(q => q\.questionText\)/);
+  assert.match(extract, /\.filter\(q => \{/);
+  assert.match(extract, /Boolean\(q\.questionText\)/);
+  assert.match(extract, /unclear/);
   assert.doesNotMatch(extract, /\[unclear question text\]/);
 });
 
@@ -120,13 +122,16 @@ test("Gemini 3.8 Flash uses high thinking and avoids unsupported sampling settin
 
 test("semantic deduplication merges paraphrased model candidates and rejects weak placeholders", () => {
   assert.match(main, /function areDuplicateCandidates/);
-  assert.match(main, /shorterCoverage >= 0\.62/);
+  assert.match(main, /shorterCoverage >= 0\.8/);
+  assert.match(main, /questionKey\(aText\) === questionKey\(bText\)/);
   assert.match(main, /function isPlausibleQuestionText/);
   assert.match(main, /if \(!isPlausibleQuestionText\(text\)\) return/);
   assert.match(main, /Near-duplicate AI candidates were merged/);
   assert.match(extract, /NO-INVENTION RULE/);
   assert.match(extract, /DUPLICATE RULE/);
   assert.match(audit, /SEMANTIC DEDUPLICATION RULE/);
+  assert.match(extract, /MATH OUTPUT FORMAT/);
+  assert.match(audit, /MATH OUTPUT FORMAT/);
 });
 
 test("the original source page is preserved for review and included in question-bank PDF exports", () => {
