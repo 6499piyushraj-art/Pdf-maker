@@ -10,7 +10,7 @@ type Question = {
   options: string[]; diagramDescription: string; confidence: number;
   reviewRequired: boolean; reviewNotes: string[];
 };
-type PageRecord = { fileName: string; pageNumber: number; text: string; status: "done" | "failed"; error?: string; questions: number; sourcePreview?: string };
+type PageRecord = { fileName: string; pageNumber: number; text: string; status: "done" | "failed"; error?: string; questions: number; sourcePreview?: string; sourceLoading?: boolean; verifiedEmpty?: boolean };
 type AppState = { authenticated: boolean; configured: boolean; apiUnavailable: boolean; busy: boolean; files: File[]; questions: Question[]; pages: PageRecord[]; message: string; search: string; activeTab: "questions" | "pages"; googleDocsConfigured: boolean; googleDocsConnected: boolean };
 const state: AppState = { authenticated: false, configured: false, apiUnavailable: false, busy: false, files: [], questions: [], pages: [], message: "", search: "", activeTab: "questions", googleDocsConfigured: false, googleDocsConnected: false };
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -192,6 +192,7 @@ function render() {
   <p class="message">${escapeHtml(state.message)}</p></section>
   <section class="panel results-panel"><div class="section-heading results-heading"><div><p class="eyebrow">STEP 02</p><h2>Your question bank</h2><p class="muted">Only question text, options and necessary figure notes are included. Download PDF works without Google sign-in, with each question on a separate page.</p></div><div class="google-actions">${renderPdfExportAction()}${renderGoogleDocsAction()}</div></div>
   <div class="results-tools"><div class="tabs"><button data-tab="questions" class="${state.activeTab==="questions"?"selected":""}">Questions <span>${state.questions.length}</span></button><button data-tab="pages" class="${state.activeTab==="pages"?"selected":""}">Page log <span>${state.pages.length}</span></button></div>${state.activeTab==="questions"?'<input id="search" class="search" placeholder="Search questions…" value="'+escapeHtml(state.search)+'">':""}</div>
+  ${state.activeTab === "pages" ? renderEmptyPageReview() : ""}
   ${state.activeTab==="questions" ? (visible.length ? visible.map((q,i)=>`<article class="question-card"><div class="question-top"><span class="question-number">Q${state.questions.indexOf(q)+1}</span><span class="source">${escapeHtml(q.fileName)} · page ${q.pageNumber}</span>${q.reviewRequired?'<span class="review-badge">Review</span>':'<span class="ok-badge">Checked</span>'}</div>
     <label class="field-label">Question</label><textarea data-edit="questionText" data-id="${q.id}" rows="2">${escapeHtml(q.questionText)}</textarea>
     ${q.options.length?'<label class="field-label">Options</label>'+q.options.map((o,j)=>`<input class="option-edit" data-option="${j}" data-id="${q.id}" value="${escapeHtml(o)}">`).join(""):""}
@@ -225,7 +226,14 @@ app.addEventListener("change", async (event) => {
     if (invalid) { state.message = `${invalid.name} is not a PDF.`; render(); return; }
     const tooLarge = picked.find(f => f.size > 20 * 1024 * 1024);
     if (tooLarge) { state.message = `${tooLarge.name} is over the 20 MB per-file limit.`; render(); return; }
-    state.files = picked; state.message = ""; render(); return;
+    if (!picked.length) return;
+    state.files = picked;
+    state.questions = [];
+    state.pages = [];
+    state.search = "";
+    state.activeTab = "questions";
+    state.message = `Selected ${picked.length} PDF(s). Previous results cleared for a clean extraction run.`;
+    render(); return;
   }
   const id = target.dataset.id;
   if (id && target.dataset.edit) {
@@ -262,13 +270,34 @@ app.addEventListener("click", async (event) => {
     state.authenticated = false; state.message = ""; render(); return;
   }
   if (target.classList.contains("remove-file")) {
-    state.files.splice(Number(target.dataset.index), 1); render(); return;
+    state.files.splice(Number(target.dataset.index), 1);
+    state.questions = [];
+    state.pages = [];
+    state.search = "";
+    state.activeTab = "questions";
+    state.message = "File list changed; previous question bank cleared. Start a new extraction to avoid mixing sources.";
+    render(); return;
   }
   if (target.dataset.tab) { state.activeTab = target.dataset.tab as AppState["activeTab"]; render(); return; }
   if (target.id === "process") { await processFiles(); return; }
   if (target.id === "export-pdf") { downloadQuestionPdf(); return; }
   if (target.id === "export-google") { await exportGoogleDoc(); return; }
   if (target.id === "disconnect-google") { await disconnectGoogleDocs(); return; }
+  if (target.classList.contains("load-source")) {
+    await loadSourcePreview(target.dataset.file || "", Number(target.dataset.page));
+    return;
+  }
+  if (target.classList.contains("confirm-empty")) {
+    const fileName = target.dataset.file || "";
+    const pageNumber = Number(target.dataset.page);
+    const page = state.pages.find(item => item.fileName === fileName && item.pageNumber === pageNumber);
+    if (!page || page.status !== "done" || page.questions !== 0) return;
+    if (!page.sourcePreview) { state.message = "Open and inspect the original PDF page before confirming it has no question."; render(); return; }
+    page.verifiedEmpty = true;
+    state.message = `Page ${pageNumber} of ${fileName} marked as checked: no question present.`;
+    render();
+    return;
+  }
   if (target.classList.contains("retry")) {
     await retryPage(target.dataset.file || "", Number(target.dataset.page));
     return;
@@ -277,7 +306,13 @@ app.addEventListener("click", async (event) => {
 
 async function processFiles() {
   if (!state.files.length || state.busy) return;
-  state.busy = true; state.message = "Preparing PDF pages…"; render();
+  if (state.pages.length || state.questions.length) {
+    state.questions = [];
+    state.pages = [];
+    state.search = "";
+    state.activeTab = "questions";
+  }
+  state.busy = true; state.message = `Preparing ${state.files.length} PDF(s)…`; render();
   const selected = [...state.files];
   try {
     for (const file of selected) {
@@ -285,7 +320,6 @@ async function processFiles() {
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
         state.message = `Reading ${file.name} · page ${pageNumber} of ${pdf.numPages}`; render();
         let pageText = "";
-        let sourcePreview = "";
         try {
           const page = await pdf.getPage(pageNumber);
           const textContent = await page.getTextContent();
@@ -297,7 +331,6 @@ async function processFiles() {
           const context = canvas.getContext("2d");
           if (!context) throw new Error("Could not render the PDF page.");
           await page.render({ canvas, canvasContext: context, viewport }).promise;
-          sourcePreview = makeSourcePreview(canvas);
           const { imageData, imageDataSegments } = makePageImagePayload(canvas);
           const result = await extractPageWithFocusedFallback({ fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData, imageDataSegments });
           const newQuestions: Question[] = deduplicateCandidates(Array.isArray(result.questions) ? result.questions : []).map((q: any) => ({
@@ -319,9 +352,9 @@ diagramDescription: String(q.diagramDescription || ""),
           }
           mergeRecoveredQuestions(newQuestions, audit?.missingQuestions || [], file.name, pageNumber);
           state.questions.push(...newQuestions);
-          state.pages.push({ fileName: file.name, pageNumber, text: pageText, status: "done", questions: newQuestions.length, sourcePreview });
+          state.pages.push({ fileName: file.name, pageNumber, text: pageText, status: "done", questions: newQuestions.length });
         } catch (error) {
-          state.pages.push({ fileName: file.name, pageNumber, text: pageText, status: "failed", error: error instanceof Error ? error.message : "Unknown page error", questions: 0, sourcePreview });
+          state.pages.push({ fileName: file.name, pageNumber, text: pageText, status: "failed", error: error instanceof Error ? error.message : "Unknown page error", questions: 0 });
         }
         render();
       }
@@ -356,7 +389,6 @@ async function retryPage(fileName: string, pageNumber: number) {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Could not render the PDF page.");
     await page.render({ canvas, canvasContext: context, viewport }).promise;
-    const sourcePreview = makeSourcePreview(canvas);
     const { imageData, imageDataSegments } = makePageImagePayload(canvas);
     const result = await extractPageWithFocusedFallback({ fileName: file.name, pageNumber, pageCount: pdf.numPages, pageText, imageData, imageDataSegments });
     const questions: Question[] = deduplicateCandidates(Array.isArray(result.questions) ? result.questions : []).map((q: any) => ({
@@ -379,7 +411,8 @@ diagramDescription: String(q.diagramDescription || ""),
     state.questions = state.questions.filter(q => !(q.fileName === file.name && q.pageNumber === pageNumber));
     state.questions.push(...questions);
     const pageIndex = state.pages.findIndex(p => p.fileName === file.name && p.pageNumber === pageNumber);
-    const record: PageRecord = { fileName: file.name, pageNumber, text: pageText, status: "done", questions: questions.length, sourcePreview };
+    const previousRecord = pageIndex >= 0 ? state.pages[pageIndex] : undefined;
+    const record: PageRecord = { fileName: file.name, pageNumber, text: pageText, status: "done", questions: questions.length, sourcePreview: previousRecord?.sourcePreview };
     if (pageIndex >= 0) state.pages[pageIndex] = record; else state.pages.push(record);
     state.message = `Retry complete: ${questions.length} question(s) recovered from page ${pageNumber}.`;
     state.activeTab = "questions";
@@ -405,21 +438,85 @@ async function refreshGoogleDocsStatus() {
 function renderGoogleDocsAction(): string {
   if (!state.googleDocsConfigured) return '<span class="tiny google-setup-note">Google Docs setup needed: add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Render.</span>';
   if (!state.googleDocsConnected) return '<a class="secondary google-connect" href="/api/google?action=login">Sign in with Google ↗</a>';
-  const blocked = !state.questions.length || state.busy || state.pages.some(page => page.status === "failed");
-  const label = state.pages.some(page => page.status === "failed") ? "Retry failed pages first" : "Create Google Doc ↗";
+  const hasFailedPages = state.pages.some(page => page.status === "failed");
+  const needsEmptyReview = hasUnreviewedEmptyPages();
+  const blocked = !state.questions.length || state.busy || hasFailedPages || needsEmptyReview;
+  const label = hasFailedPages ? "Retry failed pages first" : needsEmptyReview ? "Review empty pages first" : "Create Google Doc ↗";
   return '<span class="google-connected"><i></i> Google connected</span><button id="export-google" class="secondary" ' + (blocked ? "disabled" : "") + '>' + label + '</button><button id="disconnect-google" class="quiet" ' + (state.busy ? "disabled" : "") + '>Disconnect</button>';
 }
 function renderPdfExportAction(): string {
   const hasFailedPages = state.pages.some(page => page.status === "failed");
-  const blocked = !state.questions.length || state.busy || hasFailedPages;
-  const label = hasFailedPages ? "Retry failed pages first" : "Download PDF ↓";
-  return '<button id="export-pdf" class="secondary" ' + (blocked ? "disabled" : "") + ' title="One question per page; choose Save as PDF in the print dialog.">' + label + '</button>';
+  const needsEmptyReview = hasUnreviewedEmptyPages();
+  const blocked = !state.questions.length || state.busy || hasFailedPages || needsEmptyReview;
+  const label = hasFailedPages ? "Retry failed pages first" : needsEmptyReview ? "Review empty pages first" : "Download PDF ↓";
+  const title = hasFailedPages ? "Retry every failed page before export." : needsEmptyReview ? "Open each page with zero detected questions and verify whether a question was missed." : "One question per page; choose Save as PDF in the print dialog.";
+  return '<button id="export-pdf" class="secondary" ' + (blocked ? "disabled" : "") + ' title="' + title + '">' + label + '</button>';
 }
 
+function hasUnreviewedEmptyPages(): boolean {
+  return state.pages.some(page => page.status === "done" && page.questions === 0 && page.verifiedEmpty !== true);
+}
 function renderSourceReference(fileName: string, pageNumber: number): string {
-  const preview = state.pages.find(page => page.fileName === fileName && page.pageNumber === pageNumber)?.sourcePreview;
-  if (!preview) return "";
-  return '<details class="source-reference"><summary>View original PDF page</summary><a href="' + escapeHtml(preview) + '" target="_blank" rel="noreferrer"><img src="' + escapeHtml(preview) + '" alt="Original source PDF page ' + pageNumber + '" loading="lazy"></a><small>Open the image in a new tab to zoom and compare the original diagram or equation.</small></details>';
+  const page = state.pages.find(item => item.fileName === fileName && item.pageNumber === pageNumber);
+  if (!page) return "";
+  if (page.sourcePreview) {
+    return '<details class="source-reference" open><summary>Original PDF page · compare source</summary><a href="' + escapeHtml(page.sourcePreview) + '" target="_blank" rel="noreferrer"><img src="' + escapeHtml(page.sourcePreview) + '" alt="Original source PDF page ' + pageNumber + '" loading="lazy"></a><small>Rendered from your original PDF. Compare the equation, labels and diagram before trusting the extracted text.</small></details>';
+  }
+  const canLoad = state.files.some(file => file.name === fileName);
+  const buttonLabel = page.sourceLoading ? "Rendering original page…" : "Load original page image";
+  const disabled = page.sourceLoading || !canLoad ? "disabled" : "";
+  const note = canLoad ? "Rendered only when requested to reduce browser memory use." : "Re-select the original PDF to load this page image.";
+  return '<details class="source-reference"><summary>View original PDF page</summary><div class="source-reference-controls"><button class="load-source secondary" data-file="' + escapeHtml(fileName) + '" data-page="' + pageNumber + '" ' + disabled + '>' + buttonLabel + '</button><small>' + note + '</small></div></details>';
+}
+function renderEmptyPageReview(): string {
+  const emptyPages = state.pages.filter(page => page.status === "done" && page.questions === 0 && page.verifiedEmpty !== true);
+  if (!emptyPages.length) return "";
+  return '<section class="empty-review-panel"><h3>Pages with no detected questions</h3><p>Open the original image for each page. Re-scan it if the AI missed a question, or confirm only when the source truly contains no question.</p>' +
+    emptyPages.map(page => '<article class="empty-review-row"><strong>' + escapeHtml(page.fileName) + ' · page ' + page.pageNumber + '</strong>' +
+      renderSourceReference(page.fileName, page.pageNumber) +
+      '<button class="confirm-empty secondary" data-file="' + escapeHtml(page.fileName) + '" data-page="' + page.pageNumber + '" ' + (page.sourcePreview ? "" : "disabled") + '>' +
+      (page.sourcePreview ? "I checked — no question here" : "Load the original page first") + '</button></article>').join("") +
+    '</section>';
+}
+async function loadSourcePreview(fileName: string, pageNumber: number): Promise<void> {
+  const record = state.pages.find(item => item.fileName === fileName && item.pageNumber === pageNumber);
+  if (!record || record.sourcePreview || record.sourceLoading) return;
+  const file = state.files.find(item => item.name === fileName);
+  if (!file) {
+    state.message = "Re-select the original PDF to load this page image.";
+    render();
+    return;
+  }
+  record.sourceLoading = true;
+  state.message = 'Rendering original source page ' + pageNumber + '…';
+  render();
+  let canvas: HTMLCanvasElement | null = null;
+  try {
+    const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    if (pageNumber > pdf.numPages) throw new Error("The selected PDF no longer contains this page.");
+    const page = await pdf.getPage(pageNumber);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: Math.min(1.5, 1500 / baseViewport.width) });
+    canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not render the original PDF page.");
+    await page.render({ canvas, canvasContext: context, viewport }).promise;
+    const preview = makeSourcePreview(canvas);
+    const current = state.pages.find(item => item.fileName === fileName && item.pageNumber === pageNumber);
+    if (!current) throw new Error("The page record disappeared while rendering the preview.");
+    current.sourcePreview = preview;
+    current.sourceLoading = false;
+    state.message = 'Original source page ' + pageNumber + ' is ready for verification.';
+  } catch (error) {
+    const current = state.pages.find(item => item.fileName === fileName && item.pageNumber === pageNumber);
+    if (current) current.sourceLoading = false;
+    state.message = error instanceof Error ? error.message : "Could not render the original PDF page.";
+  } finally {
+    if (canvas) { canvas.width = 0; canvas.height = 0; }
+    render();
+  }
 }
 function mergeRecoveredQuestions(questions: Question[], rawMissing: unknown, fileName: string, pageNumber: number): void {
   if (!Array.isArray(rawMissing)) return;
@@ -439,6 +536,12 @@ function downloadQuestionPdf() {
   if (!state.questions.length || state.busy) return;
   if (state.pages.some(page => page.status === "failed")) {
     state.message = "Retry every failed page before exporting, so the PDF is not knowingly incomplete.";
+    render();
+    return;
+  }
+  if (hasUnreviewedEmptyPages()) {
+    state.message = "Review every page with zero detected questions: open its original page, re-scan if needed, or confirm no question is present.";
+    state.activeTab = "pages";
     render();
     return;
   }
@@ -484,6 +587,12 @@ function downloadQuestionPdf() {
 
 async function exportGoogleDoc() {
   if (!state.questions.length || state.busy) return;
+  if (hasUnreviewedEmptyPages()) {
+    state.message = "Review every page with zero detected questions before exporting the Google Doc.";
+    state.activeTab = "pages";
+    render();
+    return;
+  }
   if (state.pages.some(page => page.status === "failed")) {
     state.message = "Retry every failed page before exporting, so the Google Doc is not knowingly incomplete.";
     render();
