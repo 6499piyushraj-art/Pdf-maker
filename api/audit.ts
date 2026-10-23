@@ -49,6 +49,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     "The image is authoritative. When selectable text is missing or short, treat the page as image-only, not blank. Look under printed question banners and inspect every stem, option and lower/side region. Return every distinct omitted printed question as a separate item; do not recover only the easiest-to-read one.",
     "The image is authoritative for whether a question is visibly present, diagrams, equations, labels and layout. The selectable text is a second source, not a substitute for looking at the image. Look for every omitted numbered question and subquestion, options, question statements without a question mark, small/faint/scanned text, cut-off wording, math symbols/units, diagram/table/graph-dependent questions, and text continued from another page.",
     "Independently re-read the page; do not assume the first pass is complete or correct. Even if FIRST-PASS QUESTIONS is empty, extract all clearly visible missing questions into missingQuestions. A question need not end in a question mark. Do not solve anything or return answers, solutions, hints or explanations. Never invent unreadable content; if a question is visibly there but partly unreadable, preserve the visible fragment, mark uncertainty with [unclear], and set reviewRequired=true. Avoid duplicates of existing items. If the page truly has no questions, return an empty missingQuestions array.",
+    "NO-INVENTION RULE: do not infer a task from solution steps. If the source page only shows givens, equations, a derivation, or teacher working without the actual requested task, do not create a question from it. Do not generate a generic paraphrase such as Find the centre of mass unless those words or an equivalent requested task are visible in the source.",
+    "SEMANTIC DEDUPLICATION RULE: missingQuestions must include only genuinely distinct questions not already represented by FIRST-PASS QUESTIONS. Different OCR/model phrasings of the same stem, options, values and diagram are the same question; never return shortened paraphrases as additional questions. Crops are views of one page, not separate question sources.",
+    "MATH FIDELITY: do not silently correct equations. Keep visible notation as faithfully as possible, mark uncertain spans [unclear], and request manual review for questionable transcription.",
     "Return JSON only: {\"issues\":[{\"questionIndex\":0,\"issue\":\"short concrete note\"}],\"missingQuestions\":[{\"questionText\":\"...\",\"options\":[\"...\"],\"diagramDescription\":\"\",\"confidence\":0.0,\"reviewRequired\":true,\"reviewNotes\":[]}],\"summary\":\"short status\"}",
     "File: " + fileName + "; page: " + pageNumber,
     "SELECTABLE SOURCE TEXT:",
@@ -77,7 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const confidence = typeof q?.confidence === "number" && Number.isFinite(q.confidence) ? Math.max(0, Math.min(1, q.confidence)) : 0.5;
       const reviewNotes = Array.isArray(q?.reviewNotes) ? q.reviewNotes.slice(0, 8).map((v: unknown) => str(v, 500)).filter(Boolean) : [];
       return { questionText, options, diagramDescription, confidence, reviewRequired: true, reviewNotes: [...reviewNotes, "Recovered by second-pass visual completeness check; compare with the source PDF."] };
-    }).filter((q: Candidate) => q.questionText) : [];
+    }).filter((q: Candidate) => q.questionText && !/^\s*\[?unclear\]?\s*$/i.test(q.questionText)) : [];
     return json(res, 200, { issues, missingQuestions, summary: str(parsed?.summary, 1000) });
   } catch (error) {
     const issues = questions.map((_, questionIndex) => ({
