@@ -92,7 +92,7 @@ test("question bank PDF export works without Google Docs and starts each questio
 
 test("image-only pages with partial results receive focused retries instead of stopping at one question", () => {
   assert.match(main, /const imageOnlyPage = input\.pageText\.trim\(\)\.length < 80/);
-  assert.match(main, /initialQuestions\.length > 2\) return initial/);
+  assert.match(main, /initialQuestions\.length > 5\) return initial/);
   assert.match(main, /collectUnique\(candidateSets\)\.length <= 2/);
   assert.match(main, /for \(const cropData of input\.imageDataSegments\)/);
   assert.match(extract, /pixels are the source of truth, not an empty page/i);
